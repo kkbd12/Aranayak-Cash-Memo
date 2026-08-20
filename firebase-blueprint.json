@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account and shop membership profile",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "shopId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "email"]
+    },
+    "ShopSettings": {
+      "title": "ShopSettings",
+      "description": "Store profile and invoice customization settings",
+      "type": "object",
+      "properties": {
+        "shopName": { "type": "string" },
+        "proprietorName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "phone": { "type": "string" },
+        "altPhone": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "currencySymbol": { "type": "string" },
+        "footerNote": { "type": "string" },
+        "termsCondition": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "banglaQrUrl": { "type": "string" },
+        "banglaQrNote": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["shopName", "phone"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Inventory product item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "unitPrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "unit": { "type": "string" },
+        "isDefault": { "type": "boolean" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "unitPrice", "unit"]
+    },
+    "CashMemo": {
+      "title": "CashMemo",
+      "description": "Cash invoice and transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "memoNo": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discount": { "type": "number" },
+        "discountType": { "type": "string" },
+        "tax": { "type": "number" },
+        "shipping": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "dueAmount": { "type": "number" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["memoNo", "date", "customerName", "totalAmount"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles"
+    },
+    "/shops/{shopId}": {
+      "schema": "ShopSettings",
+      "description": "Shop settings and partnership store info"
+    },
+    "/shops/{shopId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Shop inventory products"
+    },
+    "/shops/{shopId}/memos/{memoId}": {
+      "schema": "CashMemo",
+      "description": "Sales cash memos"
+    }
+  }
+}

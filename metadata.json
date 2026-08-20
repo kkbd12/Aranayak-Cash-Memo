@@ -1,0 +1,6 @@
+{
+  "name": "Sales Cash Memo & Daily Sales Tracker",
+  "description": "Create printable customer cash memos with automatic calculations and keep a daily sales history database.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

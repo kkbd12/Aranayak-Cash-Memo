@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-100 text-slate-900 font-sans antialiased min-h-screen;
+  }
+}
+
+/* Custom Print Styles */
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 6mm;
+  }
+
+  body {
+    background-color: white !important;
+    color: black !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Hide everything on screen except the printable memo container */
+  body * {
+    visibility: hidden;
+  }
+
+  .no-print, header, nav, footer, button {
+    display: none !important;
+  }
+
+  /* Reveal printable area */
+  #printable-area, #printable-area * {
+    visibility: visible;
+  }
+
+  #printable-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+  }
+}
+
+/* Hide scrollbar for clean tab headers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

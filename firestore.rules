@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // User profile: only the authenticated user can read & write their profile
+    match /users/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Shop settings & data: allow access to authenticated users
+    match /shops/{shopId} {
+      allow read, write: if isAuthenticated();
+      
+      // Products subcollection
+      match /products/{productId} {
+        allow read, write: if isAuthenticated();
+      }
+
+      // Memos subcollection
+      match /memos/{memoId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    // Fallback root collections if created directly
+    match /memos/{memoId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /products/{productId} {
+      allow read, write: if isAuthenticated();
+    }
+    match /settings/{settingId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
