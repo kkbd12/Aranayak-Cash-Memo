@@ -48,13 +48,21 @@ try {
   // Ignored if already initialized or not supported
 }
 
-// Sign-In with Google
+// Sign-In with Google (with popup and fallback)
 export const signInWithGoogle = async (): Promise<User | null> => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     return result.user;
-  } catch (error) {
-    console.error('Google Sign-In error:', error);
+  } catch (error: any) {
+    console.error('Google Sign-In error details:', error);
+    // If popup was blocked or closed by user, throw informative message
+    if (error?.code === 'auth/popup-blocked') {
+      throw new Error('পপ-আপ উইন্ডোটি ব্লক করা হয়েছে। ব্রাউজারের Pop-up Allow করুন।');
+    } else if (error?.code === 'auth/unauthorized-domain') {
+      throw new Error('এই ডোমেইনটি ফায়ারবেসে অনুমোদিত (Authorized) করা নেই। Firebase Console > Authentication > Settings > Authorized Domains-এ আপনার ওয়েবসাইট ডোমেইন যোগ করুন।');
+    } else if (error?.code === 'auth/popup-closed-by-user') {
+      throw new Error('সাইন-ইন উইন্ডোটি বন্ধ করে দেওয়া হয়েছে।');
+    }
     throw error;
   }
 };
@@ -99,9 +107,7 @@ export const subscribeToShopData = (
     (snap) => {
       const prods: Product[] = [];
       snap.forEach((d) => prods.push(d.data() as Product));
-      if (prods.length > 0) {
-        callbacks.onProductsChange(prods);
-      }
+      callbacks.onProductsChange(prods);
     },
     (err) => console.warn('Firestore products listener error:', err)
   );
@@ -147,6 +153,19 @@ export const deleteMemoFromCloud = async (userId: string, memoId: string): Promi
   await deleteDoc(memoRef);
 };
 
+// Clear all memos from Firestore
+export const clearAllMemosFromCloud = async (userId: string): Promise<void> => {
+  try {
+    const memosCol = collection(db, 'shops', userId, 'memos');
+    const snap = await getDocs(memosCol);
+    for (const d of snap.docs) {
+      await deleteDoc(d.ref);
+    }
+  } catch (err) {
+    console.error('Error clearing cloud memos:', err);
+  }
+};
+
 // Save shop settings to Firestore
 export const saveSettingsToCloud = async (
   userId: string,
@@ -174,34 +193,24 @@ export const syncLocalDataToCloud = async (
   data: { settings: ShopSettings; products: Product[]; memos: CashMemo[] }
 ) => {
   try {
-    // 1. Check if cloud already has memos
-    const memosCol = collection(db, 'shops', userId, 'memos');
-    const existingMemosSnap = await getDocs(memosCol);
-    const existingMemoIds = new Set(existingMemosSnap.docs.map((d) => d.id));
-
-    // Upload any local memos that are missing in cloud
-    for (const memo of data.memos) {
-      if (!existingMemoIds.has(memo.id)) {
-        await setDoc(doc(db, 'shops', userId, 'memos', memo.id), memo);
-      }
-    }
-
-    // 2. Sync Products
-    const productsCol = collection(db, 'shops', userId, 'products');
-    const existingProdsSnap = await getDocs(productsCol);
-    const existingProdIds = new Set(existingProdsSnap.docs.map((d) => d.id));
-
-    for (const prod of data.products) {
-      if (!existingProdIds.has(prod.id)) {
-        await setDoc(doc(db, 'shops', userId, 'products', prod.id), prod);
-      }
-    }
-
-    // 3. Settings
     const shopRef = doc(db, 'shops', userId);
     const shopSnap = await getDoc(shopRef);
-    if (!shopSnap.exists()) {
-      await setDoc(shopRef, { ...data.settings, updatedAt: new Date().toISOString() });
+
+    // If this shop already exists on cloud, don't re-upload demo data!
+    if (shopSnap.exists()) {
+      return;
+    }
+
+    // First time connecting this user: mark as initialized and upload current state
+    await setDoc(shopRef, { ...data.settings, initializedAt: new Date().toISOString() });
+
+    // Only upload non-demo or real user memos
+    for (const memo of data.memos) {
+      await setDoc(doc(db, 'shops', userId, 'memos', memo.id), memo);
+    }
+
+    for (const prod of data.products) {
+      await setDoc(doc(db, 'shops', userId, 'products', prod.id), prod);
     }
   } catch (err) {
     console.error('Error syncing local data to cloud:', err);

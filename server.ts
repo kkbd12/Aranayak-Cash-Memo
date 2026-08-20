@@ -193,6 +193,12 @@ app.delete('/api/memos/:id', (req, res) => {
   res.json({ success: true, id });
 });
 
+app.post('/api/memos/clear-all', (_req, res) => {
+  dbState.memos = [];
+  saveDB();
+  res.json({ success: true, count: 0 });
+});
+
 // Daily Summary API
 app.get('/api/summary', (req, res) => {
   const targetDate = (req.query.date as string) || new Date().toISOString().split('T')[0];

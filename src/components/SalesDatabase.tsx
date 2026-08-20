@@ -33,6 +33,7 @@ interface SalesDatabaseProps {
   lang: 'bn' | 'en';
   onExportBackup?: () => void;
   onRestoreBackup?: (file: File) => Promise<boolean>;
+  onClearAllMemos?: () => void;
 }
 
 export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
@@ -47,6 +48,7 @@ export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
   lang,
   onExportBackup,
   onRestoreBackup,
+  onClearAllMemos,
 }) => {
   const isBn = lang === 'bn';
   const currency = shopSettings.currencySymbol || '৳';
@@ -56,6 +58,7 @@ export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Partial' | 'Due'>('All');
   const [dateRangeMode, setDateRangeMode] = useState<'all' | 'today' | 'yesterday' | 'week' | 'custom'>('all');
   const [memoToDelete, setMemoToDelete] = useState<CashMemo | null>(null);
+  const [showClearAllModal, setShowClearAllModal] = useState(false);
   const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
 
   // Helper date strings
@@ -242,6 +245,19 @@ export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
               <span>{isBn ? 'CSV এক্সপোর্ট' : 'Export CSV'}</span>
             </button>
+
+            {/* Clear All Memos Button */}
+            {onClearAllMemos && memos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowClearAllModal(true)}
+                title={isBn ? 'সকল মেমো ও বিক্রির হিসাব সম্পূর্ণ সাফ করুন' : 'Clear all sales records'}
+                className="bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 hover:text-rose-200 text-xs px-3.5 py-2 rounded-xl border border-rose-800/80 font-bold flex items-center space-x-1.5 transition shadow-xs cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4 text-rose-400" />
+                <span>{isBn ? 'সব মেমো সাফ করুন' : 'Clear All'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -603,6 +619,63 @@ export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
               >
                 <Trash2 className="w-4 h-4" />
                 <span>{isBn ? 'হ্যাঁ, মুছে ফেলুন' : 'Delete Record'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Clear All Confirmation Modal */}
+      {showClearAllModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3.5 text-rose-600">
+              <div className="p-3 bg-rose-50 rounded-2xl border border-rose-100/80">
+                <Trash2 className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  {isBn ? 'সকল মেমো মুছে ফেলার নিশ্চিতকরণ' : 'Confirm Clear All Records'}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  {isBn
+                    ? 'ডাটাবেসের সকল ক্যাশ মেমো ও হিসাব স্থায়ীভাবে মুছে যাবে।'
+                    : 'All sales cash memo records will be permanently removed.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 p-4 rounded-2xl border border-rose-200 text-xs text-rose-800 space-y-1">
+              <p className="font-bold">
+                ⚠️ {isBn ? 'মোট মেমোর সংখ্যা:' : 'Total Memos to delete:'} {memos.length}{' '}
+                {isBn ? 'টি' : ''}
+              </p>
+              <p className="text-[11px] text-rose-700">
+                {isBn
+                  ? 'আপনি যদি নতুন করে আসল দোকানের হিসাব শুরু করতে চান, তবে এটি নিশ্চিত করুন।'
+                  : 'Confirm only if you want to start fresh without sample records.'}
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowClearAllModal(false)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                {isBn ? 'বাতিল' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onClearAllMemos) {
+                    onClearAllMemos();
+                  }
+                  setShowClearAllModal(false);
+                }}
+                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold rounded-xl transition shadow-md shadow-rose-600/20 flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isBn ? 'হ্যাঁ, সব মেমো মুছে ফেলুন' : 'Clear All Memos'}</span>
               </button>
             </div>
           </div>

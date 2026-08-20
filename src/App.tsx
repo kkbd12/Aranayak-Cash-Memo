@@ -16,6 +16,7 @@ import {
   subscribeToShopData,
   saveMemoToCloud,
   deleteMemoFromCloud,
+  clearAllMemosFromCloud,
   saveSettingsToCloud,
   saveProductToCloud,
   deleteProductFromCloud,
@@ -33,10 +34,34 @@ export default function App() {
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [syncStatusBanner, setSyncStatusBanner] = useState<string | null>(null);
 
-  // Application Data States
-  const [shopSettings, setShopSettings] = useState<ShopSettings>(initialShopSettings);
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [memos, setMemos] = useState<CashMemo[]>(initialMemos);
+  // Application Data States (lazy initialized from localStorage first)
+  const [shopSettings, setShopSettings] = useState<ShopSettings>(() => {
+    try {
+      const local = localStorage.getItem('pos_settings_backup');
+      return local ? JSON.parse(local) : initialShopSettings;
+    } catch {
+      return initialShopSettings;
+    }
+  });
+
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const local = localStorage.getItem('pos_products_backup');
+      return local !== null ? JSON.parse(local) : initialProducts;
+    } catch {
+      return initialProducts;
+    }
+  });
+
+  const [memos, setMemos] = useState<CashMemo[]>(() => {
+    try {
+      const local = localStorage.getItem('pos_memos_backup');
+      return local !== null ? JSON.parse(local) : initialMemos;
+    } catch {
+      return initialMemos;
+    }
+  });
+
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   // Daily Sales Summary State
@@ -61,66 +86,59 @@ export default function App() {
       const res = await fetch('/api/settings');
       if (res.ok) {
         const data = await res.json();
-        setShopSettings(data);
-        localStorage.setItem('pos_settings_backup', JSON.stringify(data));
-      } else {
-        const local = localStorage.getItem('pos_settings_backup');
-        if (local) setShopSettings(JSON.parse(local));
+        if (data && data.shopName) {
+          setShopSettings(data);
+          localStorage.setItem('pos_settings_backup', JSON.stringify(data));
+        }
       }
     } catch (err) {
-      console.warn('API fetch settings error, using local storage fallback:', err);
-      const local = localStorage.getItem('pos_settings_backup');
-      if (local) setShopSettings(JSON.parse(local));
+      console.warn('API fetch settings error, using local state:', err);
     }
   };
 
   const fetchProducts = async () => {
     try {
+      const local = localStorage.getItem('pos_products_backup');
+      if (local !== null) {
+        // User already has local product state, don't overwrite with server demo
+        return;
+      }
       const res = await fetch('/api/products');
       if (res.ok) {
         const data = await res.json();
         setProducts(data);
         localStorage.setItem('pos_products_backup', JSON.stringify(data));
-      } else {
-        const local = localStorage.getItem('pos_products_backup');
-        if (local) setProducts(JSON.parse(local));
       }
     } catch (err) {
-      console.warn('API fetch products error, using local storage fallback:', err);
-      const local = localStorage.getItem('pos_products_backup');
-      if (local) setProducts(JSON.parse(local));
+      console.warn('API fetch products error:', err);
     }
   };
 
   const fetchMemos = async () => {
     try {
+      const local = localStorage.getItem('pos_memos_backup');
+      if (local !== null) {
+        // User already has a memo state in this browser, respect it
+        return;
+      }
       const res = await fetch('/api/memos');
       if (res.ok) {
         const data = await res.json();
         setMemos(data);
         localStorage.setItem('pos_memos_backup', JSON.stringify(data));
-      } else {
-        const local = localStorage.getItem('pos_memos_backup');
-        if (local) setMemos(JSON.parse(local));
       }
     } catch (err) {
-      console.warn('API fetch memos error, using local storage fallback:', err);
-      const local = localStorage.getItem('pos_memos_backup');
-      if (local) setMemos(JSON.parse(local));
+      console.warn('API fetch memos error:', err);
     }
   };
 
   // Keep localStorage automatically synchronized whenever state changes
   useEffect(() => {
-    if (memos.length > 0) {
-      localStorage.setItem('pos_memos_backup', JSON.stringify(memos));
-    }
+    localStorage.setItem('pos_memos_backup', JSON.stringify(memos));
   }, [memos]);
 
   useEffect(() => {
-    if (products.length > 0) {
-      localStorage.setItem('pos_products_backup', JSON.stringify(products));
-    }
+    localStorage.setItem('pos_products_backup', JSON.stringify(products));
   }, [products]);
 
   useEffect(() => {
@@ -180,7 +198,8 @@ export default function App() {
       await signInWithGoogle();
     } catch (err: any) {
       console.error('Login error:', err);
-      alert(lang === 'bn' ? 'গুগল লগইনে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।' : 'Google Sign-In failed. Please retry.');
+      const msg = err?.message || (lang === 'bn' ? 'গুগল লগইনে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।' : 'Google Sign-In failed. Please retry.');
+      alert(msg);
     } finally {
       setIsCloudSyncing(false);
     }
@@ -372,6 +391,23 @@ export default function App() {
     if (currentUser) {
       deleteMemoFromCloud(currentUser.uid, id).catch((e) =>
         console.warn('Cloud delete memo error:', e)
+      );
+    }
+  };
+
+  const handleClearAllMemos = async () => {
+    setMemos([]);
+    localStorage.setItem('pos_memos_backup', JSON.stringify([]));
+
+    try {
+      await fetch('/api/memos/clear-all', { method: 'POST' });
+    } catch (e) {
+      console.warn('Clear local backend memos error:', e);
+    }
+
+    if (currentUser) {
+      clearAllMemosFromCloud(currentUser.uid).catch((e) =>
+        console.warn('Clear cloud memos error:', e)
       );
     }
   };
@@ -599,6 +635,7 @@ export default function App() {
             lang={lang}
             onExportBackup={handleExportFullBackup}
             onRestoreBackup={handleRestoreFullBackup}
+            onClearAllMemos={handleClearAllMemos}
           />
         )}
 
@@ -620,6 +657,7 @@ export default function App() {
             lang={lang}
             onExportBackup={handleExportFullBackup}
             onRestoreBackup={handleRestoreFullBackup}
+            onClearAllMemos={handleClearAllMemos}
           />
         )}
       </main>
