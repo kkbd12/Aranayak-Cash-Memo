@@ -635,7 +635,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                           </option>
                           {products.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name} ({currency}{p.price}/{p.unit})
+                              {p.code ? `[${p.code}] ` : ''}{p.name} ({currency}{p.price}/{p.unit})
                             </option>
                           ))}
                         </select>

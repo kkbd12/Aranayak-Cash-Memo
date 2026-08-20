@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Package, Plus, Search, Edit2, Trash2, Tag, Check, AlertCircle } from 'lucide-react';
+import { Package, Plus, Search, Edit2, Trash2, Tag, Check, AlertCircle, Sparkles, RefreshCw } from 'lucide-react';
 import { Product, ShopSettings } from '../types';
+import { generateAutoSKU } from '../utils/skuGenerator';
 
 interface ProductCatalogProps {
   products: Product[];
@@ -48,10 +49,16 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     return matchesSearch && matchesCategory;
   });
 
+  const handleRegenerateSKU = () => {
+    const nextSKU = generateAutoSKU(products, category);
+    setCode(nextSKU);
+  };
+
   const openNewModal = () => {
     setEditingProduct(null);
     setName('');
-    setCode('');
+    const autoSKU = generateAutoSKU(products, 'খাদ্যপণ্য');
+    setCode(autoSKU);
     setPrice('');
     setUnit('কেজি');
     setCategory('খাদ্যপণ্য');
@@ -62,7 +69,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   const openEditModal = (p: Product) => {
     setEditingProduct(p);
     setName(p.name);
-    setCode(p.code || '');
+    setCode(p.code || generateAutoSKU(products, p.category));
     setPrice(p.price);
     setUnit(p.unit);
     setCategory(p.category || 'খাদ্যপণ্য');
@@ -74,10 +81,13 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     e.preventDefault();
     if (!name.trim() || price === '') return;
 
+    // Ensure SKU is never empty (auto-generate if user left it blank)
+    const finalCode = (code && code.trim()) ? code.trim() : generateAutoSKU(products, category);
+
     if (editingProduct) {
       await onUpdateProduct(editingProduct.id, {
         name,
-        code,
+        code: finalCode,
         price: Number(price),
         unit,
         category,
@@ -86,7 +96,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     } else {
       await onAddProduct({
         name,
-        code,
+        code: finalCode,
         price: Number(price),
         unit,
         category,
@@ -322,16 +332,38 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {isBn ? 'পণ্য কোড / বারকোড (SKU)' : 'Code / Barcode'}
-                </label>
-                <input
-                  type="text"
-                  placeholder="PROD-101"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  className="w-full px-3.5 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50/50 font-medium"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">
+                    {isBn ? 'পণ্য কোড / SKU (স্বয়ংক্রিয়)' : 'Product Code / SKU (Auto)'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleRegenerateSKU}
+                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-200 flex items-center gap-1 transition cursor-pointer"
+                    title={isBn ? 'নতুন SKU কোড তৈরি করুন' : 'Generate new SKU'}
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>{isBn ? 'অটো জেনারেট' : 'Auto Generate'}</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="যেমন: SKU-1001"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="w-full pl-3.5 pr-20 py-2 text-sm font-mono font-bold border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-emerald-50/20 text-emerald-950"
+                  />
+                  <span className="absolute right-2.5 top-2 text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md border border-emerald-200/80 pointer-events-none flex items-center gap-1">
+                    <Sparkles className="w-2.5 h-2.5 text-emerald-600" />
+                    Auto SKU
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                  {isBn
+                    ? '✨ স্বয়ংক্রিয়ভাবে তৈরি হয়েছে। চাইলে আপনি নিজের মতো কোডও লিখতে পারেন।'
+                    : '✨ Auto-generated sequentially. You can also edit it manually.'}
+                </p>
               </div>
 
               <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100">

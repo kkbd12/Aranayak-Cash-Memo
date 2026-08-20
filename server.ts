@@ -85,10 +85,29 @@ app.get('/api/products', (_req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
+  let productCode = (req.body.code || '').trim();
+  if (!productCode) {
+    let maxNum = 1000;
+    dbState.products.forEach((p) => {
+      if (p.code) {
+        const matches = p.code.match(/\d+/g);
+        if (matches) {
+          matches.forEach((m) => {
+            const num = parseInt(m, 10);
+            if (!isNaN(num) && num >= 100 && num < 999999) {
+              if (num > maxNum) maxNum = num;
+            }
+          });
+        }
+      }
+    });
+    productCode = `SKU-${maxNum + 1}`;
+  }
+
   const newProduct: Product = {
     id: `prod-${Date.now()}`,
     name: req.body.name || 'নতুন পণ্য',
-    code: req.body.code || '',
+    code: productCode,
     price: Number(req.body.price) || 0,
     unit: req.body.unit || 'পিস',
     category: req.body.category || 'সাধারণ',
