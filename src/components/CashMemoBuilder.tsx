@@ -1009,13 +1009,13 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                 type="button"
                 onClick={() => handleSaveAndAction(true)}
                 disabled={isSaving}
-                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-extrabold text-sm rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50"
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-extrabold text-sm rounded-2xl flex items-center justify-center space-x-2 shadow-lg shadow-emerald-600/25 transition-all disabled:opacity-50 cursor-pointer"
               >
                 <Printer className="w-5 h-5" />
                 <span>
                   {isSaving
                     ? (isBn ? 'সংরক্ষণ হচ্ছে...' : 'Saving...')
-                    : (isBn ? 'মেমো সেভ ও প্রিন্ট করুন' : 'Save & Print Cash Memo')}
+                    : (isBn ? 'মেমো সেভ ও প্রিন্ট / ডাউনলোড করুন' : 'Save, Print & Download Memo')}
                 </span>
               </button>
 

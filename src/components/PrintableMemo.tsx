@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { CashMemo, ShopSettings } from '../types';
 import { numberToBnWords, formatCurrency } from '../utils/numberToWords';
-import { Printer, CheckCircle, Clock, AlertCircle, FileDown, Loader2, ExternalLink } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { Printer, CheckCircle, Clock, AlertCircle, FileDown, ImageDown, Loader2, ExternalLink, Download } from 'lucide-react';
+import { toJpeg, toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 
 interface PrintableMemoProps {
@@ -23,6 +23,7 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
   const isBn = lang === 'bn';
   const currency = shopSettings.currencySymbol || '৳';
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isGeneratingJpeg, setIsGeneratingJpeg] = useState(false);
 
   const handlePrint = () => {
     try {
@@ -75,44 +76,18 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
 
     setIsGeneratingPdf(true);
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2.5,
-        useCORS: true,
+      const dataUrl = await toPng(element, {
+        pixelRatio: 2.5,
         backgroundColor: '#ffffff',
-        logging: false,
-        onclone: (clonedDoc) => {
-          // 1. Sanitize all <style> tags in cloned document to remove oklch(...) functions that crash html2canvas
-          const styleEls = clonedDoc.querySelectorAll('style');
-          styleEls.forEach((style) => {
-            if (style.textContent && style.textContent.includes('oklch')) {
-              style.textContent = style.textContent.replace(/oklch\([^)]+\)/g, 'rgb(0, 0, 0)');
-            }
-          });
-
-          // 2. Transfer computed RGB colors from live DOM elements to cloned elements
-          const origArea = document.getElementById('printable-area');
-          const clonedArea = clonedDoc.getElementById('printable-area');
-
-          if (origArea && clonedArea) {
-            const origElements = [origArea, ...Array.from(origArea.querySelectorAll('*'))];
-            const clonedElements = [clonedArea, ...Array.from(clonedArea.querySelectorAll('*'))];
-
-            for (let i = 0; i < origElements.length; i++) {
-              const origEl = origElements[i] as HTMLElement;
-              const clonedEl = clonedElements[i] as HTMLElement;
-
-              if (origEl && clonedEl && origEl.nodeType === Node.ELEMENT_NODE) {
-                const computed = window.getComputedStyle(origEl);
-                if (computed.color) clonedEl.style.color = computed.color;
-                if (computed.backgroundColor) clonedEl.style.backgroundColor = computed.backgroundColor;
-                if (computed.borderColor) clonedEl.style.borderColor = computed.borderColor;
-              }
-            }
-          }
-        },
+        cacheBust: true,
       });
 
-      const imgData = canvas.toDataURL('image/png');
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Image load failed'));
+      });
 
       // Create A5 document: 148mm x 210mm
       const pdf = new jsPDF({
@@ -126,14 +101,14 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
       const margin = 6;
 
       const printWidth = pdfWidth - margin * 2; // 136mm
-      const printHeight = (canvas.height * printWidth) / canvas.width;
+      const printHeight = (img.height * printWidth) / img.width;
 
       let yPos = margin;
       if (printHeight < pdfHeight - margin * 2) {
         yPos = margin + (pdfHeight - margin * 2 - printHeight) / 4;
       }
 
-      pdf.addImage(imgData, 'PNG', margin, yPos, printWidth, printHeight);
+      pdf.addImage(dataUrl, 'PNG', margin, yPos, printWidth, printHeight);
       pdf.save(`CashMemo_${memo.memoNo}_A5.pdf`);
     } catch (err) {
       console.error('PDF generation error:', err);
@@ -147,17 +122,48 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
     }
   };
 
+  const handleDownloadJPEG = async () => {
+    const element = document.getElementById('printable-area');
+    if (!element) return;
+
+    setIsGeneratingJpeg(true);
+    try {
+      const dataUrl = await toJpeg(element, {
+        quality: 0.95,
+        pixelRatio: 3, // 3x scale for ultra crisp Bengali text and graphics
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+      });
+
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `CashMemo_${memo.memoNo}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('JPEG generation error:', err);
+      alert(
+        isBn
+          ? 'ছবি (JPEG) ডাউনলোড করতে সমস্যা হয়েছে! দয়া করে আবার চেষ্টা করুন।'
+          : 'Failed to download JPEG image. Please try again.'
+      );
+    } finally {
+      setIsGeneratingJpeg(false);
+    }
+  };
+
   return (
     <div className="printable-memo-wrapper">
       {/* Action Buttons Header (Screen only) */}
       {showActions && (
-        <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 bg-slate-800 text-white p-3.5 rounded-2xl border border-slate-700 shadow-xl">
+        <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 bg-slate-900 text-white p-3.5 rounded-2xl border border-slate-800 shadow-xl">
           <div className="flex items-center space-x-2">
             <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               {memo.memoNo}
             </span>
             <span className="text-xs sm:text-sm text-slate-300 font-bold">
-              {isBn ? 'ক্যাশ মেমো (A5 সাইজ প্রিভিউ)' : 'Cash Memo (A5 Size Preview)'}
+              {isBn ? 'ক্যাশ মেমো প্রিভিউ' : 'Cash Memo Preview'}
             </span>
           </div>
 
@@ -166,19 +172,40 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
             <button
               type="button"
               onClick={handleDownloadA5PDF}
-              disabled={isGeneratingPdf}
+              disabled={isGeneratingPdf || isGeneratingJpeg}
               className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 text-white px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow transition cursor-pointer"
               title={isBn ? 'A5 সাইজে PDF হিসেবে সেভ করুন' : 'Save as A5 PDF'}
             >
               {isGeneratingPdf ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-200" />
-                  <span>{isBn ? 'PDF তৈরি হচ্ছে...' : 'Generating PDF...'}</span>
+                  <span>{isBn ? 'PDF হচ্ছে...' : 'PDF...'}</span>
                 </>
               ) : (
                 <>
                   <FileDown className="w-4 h-4" />
-                  <span>{isBn ? 'A5 PDF সেভ করুন' : 'Save A5 PDF'}</span>
+                  <span>{isBn ? 'PDF ডাউনলোড' : 'Download PDF'}</span>
+                </>
+              )}
+            </button>
+
+            {/* Download JPEG Button */}
+            <button
+              type="button"
+              onClick={handleDownloadJPEG}
+              disabled={isGeneratingPdf || isGeneratingJpeg}
+              className="bg-sky-600 hover:bg-sky-500 disabled:bg-sky-800 text-white px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow transition cursor-pointer"
+              title={isBn ? 'ক্লিয়ার ছবি (JPEG) হিসেবে ডাউনলোড করুন' : 'Download as JPEG Image'}
+            >
+              {isGeneratingJpeg ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-sky-200" />
+                  <span>{isBn ? 'ছবি তৈরি হচ্ছে...' : 'JPEG...'}</span>
+                </>
+              ) : (
+                <>
+                  <ImageDown className="w-4 h-4" />
+                  <span>{isBn ? 'JPEG / ছবি ডাউনলোড' : 'Download JPEG'}</span>
                 </>
               )}
             </button>
@@ -190,14 +217,14 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
               className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow transition cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>{isBn ? 'প্রিন্ট (Print)' : 'Print'}</span>
+              <span>{isBn ? 'প্রিন্ট' : 'Print'}</span>
             </button>
 
             {/* Fallback New Window Print Button */}
             <button
               type="button"
               onClick={handleOpenPrintWindow}
-              className="bg-slate-700 hover:bg-slate-600 text-slate-200 p-2 rounded-xl text-xs font-medium transition cursor-pointer"
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 p-2 rounded-xl text-xs font-medium border border-slate-700 transition cursor-pointer"
               title={isBn ? 'নতুন ট্যাবে খুলুন ও প্রিন্ট করুন' : 'Open in new tab to print'}
             >
               <ExternalLink className="w-4 h-4" />
@@ -207,7 +234,7 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer"
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium border border-slate-700 transition cursor-pointer"
               >
                 {isBn ? 'বন্ধ করুন' : 'Close'}
               </button>

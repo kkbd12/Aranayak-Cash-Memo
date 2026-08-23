@@ -531,8 +531,8 @@ export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
                         {/* View & Print Memo */}
                         <button
                           onClick={() => onViewMemo(memo)}
-                          className="p-2 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition"
-                          title={isBn ? 'মেমো দেখুন ও প্রিন্ট করুন' : 'View & Print Memo'}
+                          className="p-2 text-slate-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition cursor-pointer"
+                          title={isBn ? 'মেমো দেখুন, প্রিন্ট ও PDF/ছবি ডাউনলোড করুন' : 'View, Print & Download PDF/JPEG'}
                         >
                           <Eye className="w-4 h-4" />
                         </button>
