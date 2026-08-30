@@ -325,9 +325,8 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
               <tr className="bg-slate-800 text-white text-center font-bold">
                 <th className="border border-slate-300 px-2.5 py-2 w-12">{isBn ? 'ক্রম' : 'SL'}</th>
                 <th className="border border-slate-300 px-3 py-2 text-left">{isBn ? 'পণ্যের বিবরণ' : 'Item Description'}</th>
-                <th className="border border-slate-300 px-3 py-2 w-24 text-right">{isBn ? 'একক মূল্য' : 'Unit Price'}</th>
-                <th className="border border-slate-300 px-3 py-2 w-20 text-center">{isBn ? 'পরিমাণ' : 'Qty'}</th>
-                <th className="border border-slate-300 px-3 py-2 w-28 text-right">{isBn ? 'মোট টাকা' : 'Total'}</th>
+                <th className="border border-slate-300 px-3 py-2 w-28 text-center">{isBn ? 'পরিমাণ' : 'Qty'}</th>
+                <th className="border border-slate-300 px-3 py-2 w-32 text-right">{isBn ? 'মোট টাকা' : 'Total'}</th>
               </tr>
             </thead>
             <tbody>
@@ -354,24 +353,6 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
                         </span>
                       )}
                     </div>
-                  </td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-mono text-slate-700">
-                    {item.isGift ? (
-                      <div>
-                        {item.unitPrice > 0 && (
-                          <span className="line-through text-slate-400 text-[11px] mr-1 block sm:inline">
-                            {currency} {item.unitPrice.toLocaleString()}
-                          </span>
-                        )}
-                        <span className="font-bold text-amber-700 text-xs">
-                          {isBn ? 'ফ্রি' : 'Free'}
-                        </span>
-                      </div>
-                    ) : (
-                      <span>
-                        {currency} {item.unitPrice.toLocaleString()}
-                      </span>
-                    )}
                   </td>
                   <td className="border border-slate-300 px-3 py-2 text-center font-mono font-medium text-slate-800">
                     {item.quantity} {item.unit}

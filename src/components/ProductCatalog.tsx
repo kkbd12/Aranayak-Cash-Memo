@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Package, Plus, Search, Edit2, Trash2, Tag, Check, AlertCircle, Sparkles, RefreshCw } from 'lucide-react';
-import { Product, ShopSettings } from '../types';
+import { Package, Plus, Search, Edit2, Trash2, Tag, Check, AlertCircle, Sparkles, RefreshCw, Layers, X } from 'lucide-react';
+import { Product, ProductVariant, ShopSettings } from '../types';
 import { generateAutoSKU } from '../utils/skuGenerator';
 
 interface ProductCatalogProps {
@@ -36,6 +36,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   const [unit, setUnit] = useState('কেজি');
   const [category, setCategory] = useState('খাদ্যপণ্য');
   const [stock, setStock] = useState<number | ''>(100);
+  const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   // Filter Categories
@@ -63,6 +64,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     setUnit('কেজি');
     setCategory('খাদ্যপণ্য');
     setStock(100);
+    setVariants([]);
     setIsModalOpen(true);
   };
 
@@ -74,7 +76,28 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     setUnit(p.unit);
     setCategory(p.category || 'খাদ্যপণ্য');
     setStock(p.stock || 0);
+    setVariants(p.variants ? p.variants.map((v) => ({ ...v })) : []);
     setIsModalOpen(true);
+  };
+
+  const addVariantRow = (presetName = '', presetUnit = '') => {
+    const newV: ProductVariant = {
+      id: `var-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: presetName,
+      price: 0,
+      unit: presetUnit || unit || 'পিস',
+    };
+    setVariants((prev) => [...prev, newV]);
+  };
+
+  const updateVariantRow = (id: string, field: keyof ProductVariant, val: any) => {
+    setVariants((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, [field]: val } : v))
+    );
+  };
+
+  const removeVariantRow = (id: string) => {
+    setVariants((prev) => prev.filter((v) => v.id !== id));
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -84,6 +107,16 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     // Ensure SKU is never empty (auto-generate if user left it blank)
     const finalCode = (code && code.trim()) ? code.trim() : generateAutoSKU(products, category);
 
+    // Sanitize variants
+    const validVariants = variants
+      .filter((v) => v.name.trim())
+      .map((v) => ({
+        id: v.id || `var-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        name: v.name.trim(),
+        price: Number(v.price) || 0,
+        unit: v.unit || unit,
+      }));
+
     if (editingProduct) {
       await onUpdateProduct(editingProduct.id, {
         name,
@@ -92,6 +125,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
         unit,
         category,
         stock: Number(stock) || 0,
+        variants: validVariants,
       });
     } else {
       await onAddProduct({
@@ -101,6 +135,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
         unit,
         category,
         stock: Number(stock) || 0,
+        variants: validVariants,
       });
     }
 
@@ -172,8 +207,8 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                 <th className="p-3.5">{isBn ? 'পণ্যের নাম' : 'Product Name'}</th>
                 <th className="p-3.5">{isBn ? 'কোড / SKU' : 'Code'}</th>
                 <th className="p-3.5">{isBn ? 'ক্যাটাগরি' : 'Category'}</th>
-                <th className="p-3.5 text-right">{isBn ? 'একক মূল্য (Price)' : 'Unit Price'}</th>
-                <th className="p-3.5 text-center">{isBn ? 'একক (Unit)' : 'Unit'}</th>
+                <th className="p-3.5 text-right">{isBn ? 'একক ও ভ্যারিয়েন্ট মূল্য' : 'Price / Variants'}</th>
+                <th className="p-3.5 text-center">{isBn ? 'ডিফল্ট একক' : 'Unit'}</th>
                 <th className="p-3.5 text-center">{isBn ? 'মজুদ (Stock)' : 'Stock'}</th>
                 <th className="p-3.5 text-center">{isBn ? 'অ্যাকশন' : 'Actions'}</th>
               </tr>
@@ -188,15 +223,36 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               ) : (
                 filteredProducts.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/80 transition">
-                    <td className="p-3.5 font-bold text-slate-900">{p.name}</td>
+                    <td className="p-3.5">
+                      <div className="font-bold text-slate-900">{p.name}</div>
+                      {p.variants && p.variants.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {p.variants.map((v) => (
+                            <span
+                              key={v.id}
+                              className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 font-medium px-2 py-0.5 rounded-md"
+                            >
+                              {v.name}: <strong className="font-mono">{currency}{v.price}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-3.5 font-mono text-slate-500 text-xs font-semibold">{p.code || '-'}</td>
                     <td className="p-3.5">
                       <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full text-[11px] font-bold border border-slate-200">
                         {p.category || 'সাধারণ'}
                       </span>
                     </td>
-                    <td className="p-3.5 text-right font-mono font-black text-emerald-700">
-                      {currency} {p.price.toLocaleString()}
+                    <td className="p-3.5 text-right">
+                      <div className="font-mono font-black text-emerald-700">
+                        {currency} {p.price.toLocaleString()}
+                      </div>
+                      {p.variants && p.variants.length > 0 && (
+                        <span className="inline-block text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded mt-0.5">
+                          {p.variants.length} {isBn ? 'টি আলাদা সাইজ' : 'sizes'}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3.5 text-center font-bold text-slate-700">{p.unit}</td>
                     <td className="p-3.5 text-center">
@@ -240,28 +296,37 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
 
       {/* Add / Edit Product Modal - Bento Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4">
-            <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
-              <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
-                <Package className="w-4 h-4" />
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 my-8 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-100 pb-3 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                  <Package className="w-4 h-4" />
+                </span>
+                <span>
+                  {editingProduct
+                    ? isBn ? 'পণ্য এডিট করুন' : 'Edit Product'
+                    : isBn ? 'নতুন পণ্য যোগ করুন' : 'Add New Product'}
+                </span>
               </span>
-              <span>
-                {editingProduct
-                  ? isBn ? 'পণ্য এডিট করুন' : 'Edit Product'
-                  : isBn ? 'নতুন পণ্য যোগ করুন' : 'Add New Product'}
-              </span>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </h3>
 
-            <form onSubmit={handleSaveProduct} className="space-y-3.5">
+            <form onSubmit={handleSaveProduct} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {isBn ? 'পণ্যের নাম (Product Name)*' : 'Product Name*'}
+                  {isBn ? 'পণ্যের মূল নাম (Product Name)*' : 'Product Name*'}
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="যেমন: মিনিকেট চাল 1kg"
+                  placeholder="যেমন: খাঁটি মধু / সরিষার তেল / মিনিকেট চাল"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm font-bold border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50/50"
@@ -271,22 +336,26 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    {isBn ? 'একক মূল্য (Price)*' : 'Unit Price*'}
+                    {isBn ? 'মূল/ডিফল্ট মূল্য (Base Price)*' : 'Base Price*'}
                   </label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    step="any"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full px-3.5 py-2 text-sm font-mono font-bold border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50/50"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">{currency}</span>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="any"
+                      placeholder="120"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full pl-7 pr-3.5 py-2 text-sm font-mono font-bold border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50/50"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    {isBn ? 'একক (Unit)' : 'Unit'}
+                    {isBn ? 'ডিফল্ট একক (Default Unit)' : 'Default Unit'}
                   </label>
                   <select
                     value={unit}
@@ -296,12 +365,131 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                     <option value="কেজি">কেজি (kg)</option>
                     <option value="গ্রাম">গ্রাম (gm)</option>
                     <option value="লিটার">লিটার (ltr)</option>
+                    <option value="জার">জার (Jar)</option>
+                    <option value="বোতল">বোতল (btl)</option>
                     <option value="পিস">পিস (pc)</option>
                     <option value="প্যাকেট">প্যাকেট (pkt)</option>
                     <option value="ডজন">ডজন (doz)</option>
                     <option value="কার্টন">কার্টন (ctn)</option>
+                    <option value="বক্স">বক্স (box)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Multi-tier / Size-based pricing section */}
+              <div className="p-3.5 bg-emerald-50/50 border border-emerald-200/80 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-emerald-700" />
+                    <span className="text-xs font-extrabold text-emerald-950">
+                      {isBn ? 'ওজন / সাইজ ভিত্তিক আলাদা মূল্য (Variants)' : 'Size & Weight Pricing (Variants)'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addVariantRow('', unit)}
+                    className="text-[11px] font-bold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-300 px-2.5 py-1 rounded-lg flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>{isBn ? 'ভ্যারিয়েন্ট যোগ করুন' : 'Add Variant'}</span>
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-emerald-800/80">
+                  {isBn
+                    ? '💡 যেমন: ১ কেজি, ৫০০ গ্রাম, ২৫০ গ্রাম, ১ জার ইত্যাদির আলাদা দাম নির্ধারণ করুন।'
+                    : '💡 Set specific prices for 1kg, 500gm, 250gm, 1 jar, etc.'}
+                </p>
+
+                {/* Quick Add Preset Buttons */}
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  <span className="text-[10px] font-bold text-slate-500 self-center mr-1">
+                    {isBn ? 'দ্রুত যোগ:' : 'Quick Add:'}
+                  </span>
+                  {[
+                    { label: '১ কেজি (1 kg)', unit: 'কেজি' },
+                    { label: '৫০০ গ্রাম (500 gm)', unit: 'গ্রাম' },
+                    { label: '২৫০ গ্রাম (250 gm)', unit: 'গ্রাম' },
+                    { label: '১০০ গ্রাম (100 gm)', unit: 'গ্রাম' },
+                    { label: '১ জার (1 Jar)', unit: 'জার' },
+                    { label: '১ লিটার (1 Ltr)', unit: 'লিটার' },
+                    { label: '৫০০ মিলি (500 ml)', unit: 'বোতল' },
+                    { label: '১ প্যাকেট', unit: 'প্যাকেট' },
+                  ].map((preset, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => addVariantRow(preset.label, preset.unit)}
+                      className="text-[10px] font-bold bg-white text-emerald-800 hover:bg-emerald-100/80 border border-emerald-200/90 px-2 py-0.5 rounded-md transition cursor-pointer"
+                    >
+                      + {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Variant Rows List */}
+                {variants.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    {variants.map((v, vIdx) => (
+                      <div
+                        key={v.id || vIdx}
+                        className="bg-white p-2.5 rounded-xl border border-emerald-200 shadow-2xs flex items-center gap-2"
+                      >
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            placeholder="যেমন: ৫০০ গ্রাম / ১ জার"
+                            value={v.name}
+                            onChange={(e) => updateVariantRow(v.id, 'name', e.target.value)}
+                            className="w-full text-xs font-bold px-2.5 py-1.5 border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50/50"
+                          />
+                        </div>
+
+                        <div className="w-24 relative">
+                          <span className="absolute left-2 top-1.5 text-[10px] font-bold text-slate-400">
+                            {currency}
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="দাম"
+                            value={v.price || ''}
+                            onChange={(e) => updateVariantRow(v.id, 'price', e.target.value === '' ? 0 : Number(e.target.value))}
+                            className="w-full pl-5 pr-2 py-1.5 text-xs font-mono font-bold border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500 bg-slate-50/50"
+                          />
+                        </div>
+
+                        <div className="w-24">
+                          <select
+                            value={v.unit || unit}
+                            onChange={(e) => updateVariantRow(v.id, 'unit', e.target.value)}
+                            className="w-full text-xs font-medium px-1.5 py-1.5 border border-slate-200 rounded-lg outline-none bg-slate-50/50"
+                          >
+                            <option value="কেজি">কেজি</option>
+                            <option value="গ্রাম">গ্রাম</option>
+                            <option value="লিটার">লিটার</option>
+                            <option value="জার">জার</option>
+                            <option value="বোতল">বোতল</option>
+                            <option value="পিস">পিস</option>
+                            <option value="প্যাকেট">প্যাকেট</option>
+                            <option value="ডজন">ডজন</option>
+                            <option value="বক্স">বক্স</option>
+                          </select>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => removeVariantRow(v.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                          title="মুছে ফেলুন"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

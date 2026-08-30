@@ -35,9 +35,17 @@ function initDB() {
     if (fs.existsSync(DB_FILE)) {
       const fileContent = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(fileContent);
+      const loadedProducts: Product[] = parsed.products || initialProducts;
+      const enrichedProducts = loadedProducts.map((p) => {
+        const initMatch = initialProducts.find((ip) => ip.id === p.id || ip.code === p.code || ip.name === p.name);
+        if (initMatch && initMatch.variants && (!p.variants || p.variants.length === 0)) {
+          return { ...p, variants: initMatch.variants };
+        }
+        return p;
+      });
       dbState = {
         settings: parsed.settings || initialShopSettings,
-        products: parsed.products || initialProducts,
+        products: enrichedProducts,
         memos: parsed.memos || initialMemos,
       };
     } else {

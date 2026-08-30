@@ -1,16 +1,25 @@
+export interface ProductVariant {
+  id: string;
+  name: string; // e.g. '1 কেজি', '500 গ্রাম', '250 গ্রাম', '১ জার'
+  price: number;
+  unit?: string; // e.g. 'কেজি', 'গ্রাম', 'জার'
+}
+
 export interface Product {
   id: string;
   name: string;
   code?: string;
   price: number;
-  unit: string; // e.g. 'পিস' (pc), 'কেজি' (kg), 'লিটার' (ltr), 'প্যাকেট' (pkt)
+  unit: string; // e.g. 'পিস' (pc), 'কেজি' (kg), 'লিটার' (ltr), 'জার' (Jar), 'প্যাকেট' (pkt)
   category?: string;
   stock?: number;
+  variants?: ProductVariant[];
 }
 
 export interface MemoItem {
   id: string;
   productId?: string;
+  selectedVariantId?: string;
   name: string;
   unitPrice: number;
   quantity: number;

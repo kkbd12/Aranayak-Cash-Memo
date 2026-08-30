@@ -47,7 +47,17 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const local = localStorage.getItem('pos_products_backup');
-      return local !== null ? JSON.parse(local) : initialProducts;
+      if (local !== null) {
+        const parsed: Product[] = JSON.parse(local);
+        return parsed.map((p) => {
+          const initMatch = initialProducts.find((ip) => ip.id === p.id || ip.code === p.code || ip.name === p.name);
+          if (initMatch && initMatch.variants && (!p.variants || p.variants.length === 0)) {
+            return { ...p, variants: initMatch.variants };
+          }
+          return p;
+        });
+      }
+      return initialProducts;
     } catch {
       return initialProducts;
     }

@@ -15,9 +15,49 @@ export const initialShopSettings: ShopSettings = {
 };
 
 export const initialProducts: Product[] = [
-  { id: 'p1', name: 'মিনিকেট চাল (Miniket Rice)', code: 'RICE01', price: 72, unit: 'কেজি', category: 'খাদ্যপণ্য', stock: 500 },
-  { id: 'p2', name: 'সয়াবিন তেল (Soyabean Oil 1L)', code: 'OIL01', price: 168, unit: 'লিটার', category: 'খাদ্যপণ্য', stock: 120 },
-  { id: 'p3', name: 'দেশি মসুর ডাল (Lentil)', code: 'DAL01', price: 140, unit: 'কেজি', category: 'খাদ্যপণ্য', stock: 200 },
+  { 
+    id: 'p1', 
+    name: 'মিনিকেট চাল (Miniket Rice)', 
+    code: 'RICE01', 
+    price: 72, 
+    unit: 'কেজি', 
+    category: 'খাদ্যপণ্য', 
+    stock: 500,
+    variants: [
+      { id: 'v1-1', name: '১ কেজি (1 kg)', price: 72, unit: 'কেজি' },
+      { id: 'v1-2', name: '৫ কেজি বস্তা (5 kg)', price: 350, unit: 'প্যাকেট' },
+      { id: 'v1-3', name: '২৫ কেজি বস্তা (25 kg)', price: 1720, unit: 'বস্তা' },
+    ]
+  },
+  { 
+    id: 'p2', 
+    name: 'খাঁটি সরিষার তেল (Pure Mustard Oil)', 
+    code: 'OIL01', 
+    price: 320, 
+    unit: 'লিটার', 
+    category: 'খাদ্যপণ্য', 
+    stock: 120,
+    variants: [
+      { id: 'v2-1', name: '১ লিটার (1 Ltr)', price: 320, unit: 'লিটার' },
+      { id: 'v2-2', name: '১ জার (1 Jar)', price: 350, unit: 'জার' },
+      { id: 'v2-3', name: '৫০০ মিলি (500 ml)', price: 165, unit: 'বোতল' },
+      { id: 'v2-4', name: '২৫০ মিলি (250 ml)', price: 85, unit: 'বোতল' },
+    ]
+  },
+  { 
+    id: 'p3', 
+    name: 'দেশি মসুর ডাল (Lentil)', 
+    code: 'DAL01', 
+    price: 140, 
+    unit: 'কেজি', 
+    category: 'খাদ্যপণ্য', 
+    stock: 200,
+    variants: [
+      { id: 'v3-1', name: '১ কেজি (1 kg)', price: 140, unit: 'কেজি' },
+      { id: 'v3-2', name: '৫০০ গ্রাম (500 gm)', price: 72, unit: 'গ্রাম' },
+      { id: 'v3-3', name: '২৫০ গ্রাম (250 gm)', price: 38, unit: 'গ্রাম' },
+    ]
+  },
   { id: 'p4', name: 'সাদা চিনি (Sugar 1kg)', code: 'SUG01', price: 135, unit: 'কেজি', category: 'খাদ্যপণ্য', stock: 150 },
   { id: 'p5', name: 'আইওডিনযুক্ত লবণ (Salt 1kg)', code: 'SLT01', price: 42, unit: 'প্যাকেট', category: 'খাদ্যপণ্য', stock: 80 },
   { id: 'p6', name: 'লাক্স সাবান (Lux Soap 100g)', code: 'SOP01', price: 65, unit: 'পিস', category: 'কসমেটিকস', stock: 90 },

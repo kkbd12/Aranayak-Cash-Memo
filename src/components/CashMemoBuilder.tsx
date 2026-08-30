@@ -16,6 +16,7 @@ import {
   UserCheck,
   Users,
   Gift,
+  Layers,
 } from 'lucide-react';
 import { CashMemo, MemoItem, Product, ShopSettings, PaymentMethod } from '../types';
 
@@ -156,22 +157,90 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
     );
   };
 
-  // Select Product from Dropdown
-  const selectProductForItem = (rowId: string, productId: string) => {
+  // Select Product or specific Variant from Dropdown
+  const handleProductOrVariantSelect = (rowId: string, compoundVal: string) => {
+    if (!compoundVal) return;
+    const [productId, variantId] = compoundVal.split('::');
     const selected = products.find((p) => p.id === productId);
     if (!selected) return;
 
+    if (variantId && selected.variants) {
+      const v = selected.variants.find((item) => item.id === variantId);
+      if (v) {
+        const baseName = selected.name.replace(/\s*\([^)]*\)\s*$/, '');
+        const updatedName = `${baseName} (${v.name})`;
+        setItems((prev) =>
+          prev.map((item) => {
+            if (item.id === rowId) {
+              return {
+                ...item,
+                productId: selected.id,
+                selectedVariantId: v.id,
+                name: updatedName,
+                unitPrice: v.price,
+                unit: v.unit || selected.unit,
+                total: item.isGift ? 0 : (v.price * item.quantity),
+              };
+            }
+            return item;
+          })
+        );
+        return;
+      }
+    }
+
+    // Default base product
     setItems((prev) =>
       prev.map((item) => {
         if (item.id === rowId) {
           return {
             ...item,
             productId: selected.id,
+            selectedVariantId: undefined,
             name: selected.name,
             unitPrice: selected.price,
             unit: selected.unit,
             total: item.isGift ? 0 : (selected.price * item.quantity),
           };
+        }
+        return item;
+      })
+    );
+  };
+
+  const selectVariantForItem = (rowId: string, variantId: string) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id === rowId && item.productId) {
+          const prod = products.find((p) => p.id === item.productId);
+          if (!prod) return item;
+
+          if (variantId === 'base') {
+            return {
+              ...item,
+              selectedVariantId: undefined,
+              name: prod.name,
+              unitPrice: prod.price,
+              unit: prod.unit,
+              total: item.isGift ? 0 : (prod.price * item.quantity),
+            };
+          }
+
+          if (prod.variants) {
+            const variant = prod.variants.find((v) => v.id === variantId);
+            if (variant) {
+              const baseName = prod.name.replace(/\s*\([^)]*\)\s*$/, '');
+              const updatedName = `${baseName} (${variant.name})`;
+              return {
+                ...item,
+                selectedVariantId: variant.id,
+                name: updatedName,
+                unitPrice: variant.price,
+                unit: variant.unit || prod.unit,
+                total: item.isGift ? 0 : (variant.price * item.quantity),
+              };
+            }
+          }
         }
         return item;
       })
@@ -539,15 +608,17 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
             </div>
           </div>
 
-          {/* Product Items Table Card */}
+            {/* Product Items Table Card */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
                   <Package className="w-4 h-4" />
                 </span>
-                <span>{isBn ? 'পণ্যের তালিকা (Product Item List)' : 'Product Items'}</span>
-              </h3>
+                <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                  {isBn ? 'পণ্যের তালিকা (Product Item List)' : 'Product Items'}
+                </h3>
+              </div>
               <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
                 {items.length} {isBn ? 'টি আইটেম' : 'Items'}
               </span>
@@ -626,20 +697,88 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
 
                       {products.length > 0 && (
                         <select
-                          onChange={(e) => selectProductForItem(item.id, e.target.value)}
-                          defaultValue=""
+                          onChange={(e) => handleProductOrVariantSelect(item.id, e.target.value)}
+                          value={
+                            item.productId
+                              ? item.selectedVariantId
+                                ? `${item.productId}::${item.selectedVariantId}`
+                                : `${item.productId}`
+                              : ''
+                          }
                           className="w-full text-xs p-2 border border-slate-200 rounded-xl bg-white font-medium text-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none mb-1 shadow-2xs"
                         >
                           <option value="" disabled>
-                            -- {isBn ? 'মজুদ পণ্য সিলেক্ট করুন' : 'Select Preset Product'} --
+                            -- {isBn ? 'মজুদ পণ্য ও সাইজ সিলেক্ট করুন' : 'Select Product & Size/Variant'} --
                           </option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.code ? `[${p.code}] ` : ''}{p.name} ({currency}{p.price}/{p.unit})
-                            </option>
-                          ))}
+                          {products.map((p) => {
+                            const hasVariants = p.variants && p.variants.length > 0;
+                            if (!hasVariants) {
+                              return (
+                                <option key={p.id} value={p.id}>
+                                  {p.code ? `[${p.code}] ` : ''}{p.name} ({currency}{p.price}/{p.unit})
+                                </option>
+                              );
+                            }
+                            return (
+                              <optgroup key={p.id} label={`📦 ${p.code ? `[${p.code}] ` : ''}${p.name}`}>
+                                <option value={p.id}>
+                                  ↳ {p.name} (মূল: {currency}{p.price}/{p.unit})
+                                </option>
+                                {p.variants?.map((v) => (
+                                  <option key={v.id} value={`${p.id}::${v.id}`}>
+                                    ↳ {p.name} - {v.name} ➔ {currency}{v.price} ({v.unit || p.unit})
+                                  </option>
+                                ))}
+                              </optgroup>
+                            );
+                          })}
                         </select>
                       )}
+
+                      {/* Variant Selection Chips if selected product has variants */}
+                      {(() => {
+                        if (!item.productId) return null;
+                        const curProd = products.find((p) => p.id === item.productId);
+                        if (!curProd || !curProd.variants || curProd.variants.length === 0) return null;
+
+                        return (
+                          <div className="mb-1 p-2 bg-emerald-50/70 rounded-xl border border-emerald-200/80 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-emerald-950 flex items-center gap-1">
+                                <Layers className="w-3 h-3 text-emerald-600" />
+                                {isBn ? 'সাইজ / ওজন দ্রুত পরিবর্তন:' : 'Change Size/Weight Variant:'}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              <button
+                                type="button"
+                                onClick={() => selectVariantForItem(item.id, 'base')}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition border cursor-pointer ${
+                                  !item.selectedVariantId
+                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-emerald-100/60'
+                                }`}
+                              >
+                                {isBn ? 'মূল' : 'Base'} ({currency}{curProd.price}/{curProd.unit})
+                              </button>
+                              {curProd.variants.map((v) => (
+                                <button
+                                  key={v.id}
+                                  type="button"
+                                  onClick={() => selectVariantForItem(item.id, v.id)}
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md transition border cursor-pointer ${
+                                    item.selectedVariantId === v.id
+                                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-emerald-100/60'
+                                  }`}
+                                >
+                                  {v.name} ({currency}{v.price})
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       <input
                         type="text"
@@ -716,6 +855,8 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                           <option value="কেজি">কেজি (kg)</option>
                           <option value="গ্রাম">গ্রাম (gm)</option>
                           <option value="লিটার">লিটার (ltr)</option>
+                          <option value="জার">জার (Jar)</option>
+                          <option value="বোতল">বোতল (btl)</option>
                           <option value="প্যাকেট">প্যাকেট (pkt)</option>
                           <option value="ডজন">ডজন (doz)</option>
                           <option value="কার্টন">কার্টন (ctn)</option>
