@@ -54,8 +54,8 @@ export const initialProducts: Product[] = [
     stock: 200,
     variants: [
       { id: 'v3-1', name: '১ কেজি (1 kg)', price: 140, unit: 'কেজি' },
-      { id: 'v3-2', name: '৫০০ গ্রাম (500 gm)', price: 72, unit: 'গ্রাম' },
-      { id: 'v3-3', name: '২৫০ গ্রাম (250 gm)', price: 38, unit: 'গ্রাম' },
+      { id: 'v3-2', name: '৫০০ গ্রাম (500 gm)', price: 72, unit: 'প্যাকেট' },
+      { id: 'v3-3', name: '২৫০ গ্রাম (250 gm)', price: 38, unit: 'প্যাকেট' },
     ]
   },
   { id: 'p4', name: 'সাদা চিনি (Sugar 1kg)', code: 'SUG01', price: 135, unit: 'কেজি', category: 'খাদ্যপণ্য', stock: 150 },
@@ -80,9 +80,9 @@ export const initialMemos: CashMemo[] = [
     customerPhone: '01711223344',
     customerAddress: 'ধানমন্ডি, ঢাকা',
     items: [
-      { id: 'i1', productId: 'p1', name: 'মিনিকেট চাল (Miniket Rice)', unitPrice: 72, quantity: 10, unit: 'কেজি', total: 720 },
-      { id: 'i2', productId: 'p2', name: 'সয়াবিন তেল (Soyabean Oil 1L)', unitPrice: 168, quantity: 2, unit: 'লিটার', total: 336 },
-      { id: 'i3', productId: 'p4', name: 'সাদা চিনি (Sugar 1kg)', unitPrice: 135, quantity: 1, unit: 'কেজি', total: 135 },
+      { id: 'i1', productId: 'p1', name: 'মিনিকেট চাল (Miniket Rice)', unitPrice: 72, quantity: 10, unit: 'কেজি', packageWeight: '১০ কেজি', total: 720 },
+      { id: 'i2', productId: 'p2', name: 'সয়াবিন তেল (Soyabean Oil 1L)', unitPrice: 168, quantity: 2, unit: 'লিটার', packageWeight: '১ লিটার', total: 336 },
+      { id: 'i3', productId: 'p4', name: 'সাদা চিনি (Sugar 1kg)', unitPrice: 135, quantity: 1, unit: 'কেজি', packageWeight: '১ কেজি', total: 135 },
     ],
     subtotal: 1191,
     discount: 41,
@@ -106,9 +106,9 @@ export const initialMemos: CashMemo[] = [
     customerPhone: '01855667788',
     customerAddress: 'মিরপুর, ঢাকা',
     items: [
-      { id: 'i4', productId: 'p3', name: 'দেশি মসুর ডাল (Lentil)', unitPrice: 140, quantity: 3, unit: 'কেজি', total: 420 },
-      { id: 'i5', productId: 'p7', name: 'হুইল ডিটারজেন্ট পাউডার (Wheel 1kg)', unitPrice: 140, quantity: 2, unit: 'প্যাকেট', total: 280 },
-      { id: 'i5_gift', name: 'লাক্স সাবান (Lux Mini)', unitPrice: 35, quantity: 1, unit: 'পিস', total: 0, isGift: true, giftNote: 'ফ্রি অফার গিফট' },
+      { id: 'i4', productId: 'p3', name: 'দেশি মসুর ডাল (Lentil)', unitPrice: 140, quantity: 3, unit: 'কেজি', packageWeight: '১ কেজি', total: 420 },
+      { id: 'i5', productId: 'p7', name: 'হুইল ডিটারজেন্ট পাউডার (Wheel 1kg)', unitPrice: 140, quantity: 2, unit: 'প্যাকেট', packageWeight: '১ কেজি', total: 280 },
+      { id: 'i5_gift', name: 'লাক্স সাবান (Lux Mini)', unitPrice: 35, quantity: 1, unit: 'পিস', packageWeight: '৫০ গ্রাম', total: 0, isGift: true, giftNote: 'ফ্রি অফার গিফট' },
     ],
     subtotal: 700,
     discount: 0,
@@ -132,8 +132,8 @@ export const initialMemos: CashMemo[] = [
     customerPhone: '01922334455',
     customerAddress: 'মোহাম্মদপুর, ঢাকা',
     items: [
-      { id: 'i6', productId: 'p6', name: 'লাক্স সাবান (Lux Soap 100g)', unitPrice: 65, quantity: 4, unit: 'পিস', total: 260 },
-      { id: 'i7', productId: 'p8', name: 'ব্র্যান্ড চা পাতা (Teatime Tea 200g)', unitPrice: 110, quantity: 2, unit: 'প্যাকেট', total: 220 },
+      { id: 'i6', productId: 'p6', name: 'লাক্স সাবান (Lux Soap 100g)', unitPrice: 65, quantity: 4, unit: 'পিস', packageWeight: '১০০ গ্রাম', total: 260 },
+      { id: 'i7', productId: 'p8', name: 'ব্র্যান্ড চা পাতা (Teatime Tea 200g)', unitPrice: 110, quantity: 2, unit: 'প্যাকেট', packageWeight: '২০০ গ্রাম', total: 220 },
     ],
     subtotal: 480,
     discount: 30,

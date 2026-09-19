@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CashMemo, ShopSettings } from '../types';
 import { numberToBnWords, formatCurrency } from '../utils/numberToWords';
+import { formatQuantityWithAmount } from '../utils/weightParser';
 import { Printer, CheckCircle, Clock, AlertCircle, FileDown, ImageDown, Loader2, ExternalLink, Download } from 'lucide-react';
 import { toJpeg, toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -325,7 +326,9 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
               <tr className="bg-slate-800 text-white text-center font-bold">
                 <th className="border border-slate-300 px-2.5 py-2 w-12">{isBn ? 'ক্রম' : 'SL'}</th>
                 <th className="border border-slate-300 px-3 py-2 text-left">{isBn ? 'পণ্যের বিবরণ' : 'Item Description'}</th>
-                <th className="border border-slate-300 px-3 py-2 w-28 text-center">{isBn ? 'পরিমাণ' : 'Qty'}</th>
+                <th className="border border-slate-300 px-3 py-2 w-32 text-center">
+                  {isBn ? 'পরিমাণ (কতটুকু)' : 'Quantity (Amount)'}
+                </th>
                 <th className="border border-slate-300 px-3 py-2 w-32 text-right">{isBn ? 'মোট টাকা' : 'Total'}</th>
               </tr>
             </thead>
@@ -354,8 +357,28 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
                       )}
                     </div>
                   </td>
-                  <td className="border border-slate-300 px-3 py-2 text-center font-mono font-medium text-slate-800">
-                    {item.quantity} {item.unit}
+                  <td className="border border-slate-300 px-3 py-2 text-center text-slate-800">
+                    {(() => {
+                      const { mainText, subBadge } = formatQuantityWithAmount(
+                        item.quantity,
+                        item.unit,
+                        item.packageWeight,
+                        item.name
+                      );
+
+                      return (
+                        <div>
+                          <div className="font-mono font-bold text-slate-900 text-xs sm:text-sm whitespace-nowrap">
+                            {mainText}
+                          </div>
+                          {subBadge && (
+                            <div className="mt-0.5 inline-block text-[11px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 print:text-slate-900 print:bg-slate-100 print:border-slate-300">
+                              {subBadge}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="border border-slate-300 px-3 py-2 text-right font-mono font-bold text-slate-900">
                     {item.isGift ? (

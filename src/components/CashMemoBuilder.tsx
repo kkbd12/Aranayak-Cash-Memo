@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { CashMemo, MemoItem, Product, ShopSettings, PaymentMethod, Customer } from '../types';
 import { getNextAvailableMemoNumber, isMemoNoDuplicate } from '../utils/memoNumberGenerator';
+import { extractAmountFromName } from '../utils/weightParser';
 
 interface CashMemoBuilderProps {
   shopSettings: ShopSettings;
@@ -277,6 +278,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
       unitPrice: 0,
       quantity: 1,
       unit: 'পিস',
+      packageWeight: '',
       total: 0,
     },
   ]);
@@ -332,6 +334,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
       if (v) {
         const baseName = selected.name.replace(/\s*\([^)]*\)\s*$/, '');
         const updatedName = `${baseName} (${v.name})`;
+        const extractedAmount = extractAmountFromName(v.name) || v.name;
         setItems((prev) =>
           prev.map((item) => {
             if (item.id === rowId) {
@@ -342,6 +345,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                 name: updatedName,
                 unitPrice: v.price,
                 unit: v.unit || selected.unit,
+                packageWeight: extractedAmount,
                 total: item.isGift ? 0 : (v.price * item.quantity),
               };
             }
@@ -353,6 +357,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
     }
 
     // Default base product
+    const baseAmount = selected.baseQuantity ? `${selected.baseQuantity} ${selected.unit}` : (extractAmountFromName(selected.name) || '');
     setItems((prev) =>
       prev.map((item) => {
         if (item.id === rowId) {
@@ -363,6 +368,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
             name: selected.name,
             unitPrice: selected.price,
             unit: selected.unit,
+            packageWeight: baseAmount,
             total: item.isGift ? 0 : (selected.price * item.quantity),
           };
         }
@@ -379,12 +385,14 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
           if (!prod) return item;
 
           if (variantId === 'base') {
+            const baseAmount = prod.baseQuantity ? `${prod.baseQuantity} ${prod.unit}` : (extractAmountFromName(prod.name) || '');
             return {
               ...item,
               selectedVariantId: undefined,
               name: prod.name,
               unitPrice: prod.price,
               unit: prod.unit,
+              packageWeight: baseAmount,
               total: item.isGift ? 0 : (prod.price * item.quantity),
             };
           }
@@ -394,12 +402,14 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
             if (variant) {
               const baseName = prod.name.replace(/\s*\([^)]*\)\s*$/, '');
               const updatedName = `${baseName} (${variant.name})`;
+              const extractedAmount = extractAmountFromName(variant.name) || variant.name;
               return {
                 ...item,
                 selectedVariantId: variant.id,
                 name: updatedName,
                 unitPrice: variant.price,
                 unit: variant.unit || prod.unit,
+                packageWeight: extractedAmount,
                 total: item.isGift ? 0 : (variant.price * item.quantity),
               };
             }
@@ -417,6 +427,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
       unitPrice: 0,
       quantity: 1,
       unit: 'পিস',
+      packageWeight: '',
       total: 0,
       isGift: false,
     };
@@ -430,6 +441,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
       unitPrice: 0,
       quantity: 1,
       unit: 'পিস',
+      packageWeight: '',
       total: 0,
       isGift: true,
       giftNote: isBn ? 'ফ্রি / গিফট' : 'Free Gift',
@@ -478,6 +490,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
         unitPrice: 0,
         quantity: 1,
         unit: 'পিস',
+        packageWeight: '',
         total: 0,
       },
     ]);
@@ -1201,11 +1214,18 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                       )}
                     </div>
 
-                    {/* Quantity & Unit */}
-                    <div className="md:col-span-3">
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                        {isBn ? 'পরিমাণ ও একক (Qty & Unit)' : 'Qty & Unit'}
-                      </label>
+                    {/* Quantity, Unit & Amount (কতটুকু) */}
+                    <div className="md:col-span-3 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[11px] font-bold text-slate-600">
+                          {isBn ? 'পরিমাণ ও একক (Qty & Unit)' : 'Qty & Unit'}
+                        </label>
+                        {item.packageWeight && (
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            {item.packageWeight}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex space-x-1.5">
                         <input
                           type="number"
@@ -1213,7 +1233,8 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                           step="any"
                           value={item.quantity || ''}
                           onChange={(e) => updateItem(item.id, 'quantity', e.target.value)}
-                          className="w-20 px-2 py-1.5 text-sm font-mono font-bold text-center border border-slate-200 rounded-xl bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none shadow-2xs"
+                          className="w-18 px-2 py-1.5 text-sm font-mono font-bold text-center border border-slate-200 rounded-xl bg-white text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none shadow-2xs"
+                          placeholder="1"
                         />
                         <select
                           value={item.unit}
@@ -1231,6 +1252,47 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                           <option value="কার্টন">কার্টন (ctn)</option>
                           <option value="বক্স">বক্স (box)</option>
                         </select>
+                      </div>
+
+                      {/* Explicit "কতটুকু" (Amount / Weight) */}
+                      <div className="bg-slate-50/90 p-1.5 rounded-xl border border-slate-200/80">
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 mb-1">
+                          <span>{isBn ? 'কতটুকু (ওজন/সাইজ):' : 'Net Amount / Size:'}</span>
+                          {item.packageWeight ? (
+                            <button
+                              type="button"
+                              onClick={() => updateItem(item.id, 'packageWeight', '')}
+                              className="text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title={isBn ? 'মুছুন' : 'Clear'}
+                            >
+                              ✕
+                            </button>
+                          ) : null}
+                        </div>
+                        <input
+                          type="text"
+                          placeholder={isBn ? 'যেমন: ৫০০ গ্রাম, ১ কেজি' : 'e.g. 500 gm, 1 kg'}
+                          value={item.packageWeight || ''}
+                          onChange={(e) => updateItem(item.id, 'packageWeight', e.target.value)}
+                          className="w-full px-2 py-1 text-xs border border-slate-200 bg-white rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-800 font-semibold"
+                        />
+                        {/* Quick Presets */}
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {['১০০ গ্রাম', '২৫০ গ্রাম', '৫০০ গ্রাম', '১ কেজি', '২ কেজি', '১ লিটার'].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => updateItem(item.id, 'packageWeight', preset)}
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition cursor-pointer ${
+                                item.packageWeight === preset
+                                  ? 'bg-emerald-600 text-white shadow-2xs'
+                                  : 'bg-white hover:bg-emerald-50 text-slate-600 border border-slate-200'
+                              }`}
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
 

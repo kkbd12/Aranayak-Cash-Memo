@@ -25,6 +25,7 @@ export interface MemoItem {
   unitPrice: number;
   quantity: number;
   unit: string;
+  packageWeight?: string; // কতটুকু / নিট ওজন বা সাইজ যেমন: '৫০০ গ্রাম', '১ কেজি', '২৫০ মিলি'
   total: number;
   isGift?: boolean;
   giftNote?: string;
