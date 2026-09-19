@@ -20,8 +20,11 @@ import {
   RefreshCw,
   AlertCircle,
   Sparkles,
+  Percent,
+  BookmarkPlus,
+  X,
 } from 'lucide-react';
-import { CashMemo, MemoItem, Product, ShopSettings, PaymentMethod } from '../types';
+import { CashMemo, MemoItem, Product, ShopSettings, PaymentMethod, Customer } from '../types';
 import { getNextAvailableMemoNumber, isMemoNoDuplicate } from '../utils/memoNumberGenerator';
 
 interface CashMemoBuilderProps {
@@ -51,51 +54,195 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
   const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false);
 
-  // Extract unique previous customers from memos
-  const previousCustomers = React.useMemo(() => {
-    if (!memos || memos.length === 0) return [];
-    const map = new Map<string, { name: string; phone: string; address: string }>();
+  // Persistent Customer Storage & State
+  const [savedCustomers, setSavedCustomers] = useState<Customer[]>(() => {
+    try {
+      const local = localStorage.getItem('pos_saved_customers_directory');
+      return local ? JSON.parse(local) : [];
+    } catch {
+      return [];
+    }
+  });
 
+  const [isCustomerDirectoryOpen, setIsCustomerDirectoryOpen] = useState(false);
+  const [isNewCustomerModalOpen, setIsNewCustomerModalOpen] = useState(false);
+  const [directorySearchQuery, setDirectorySearchQuery] = useState('');
+  const [customerToast, setCustomerToast] = useState<string | null>(null);
+
+  // New Customer Modal State
+  const [modalCustName, setModalCustName] = useState('');
+  const [modalCustPhone, setModalCustPhone] = useState('');
+  const [modalCustAddress, setModalCustAddress] = useState('');
+  const [modalCustNote, setModalCustNote] = useState('');
+
+  // Helper to normalize Bengali & English digits
+  const normalizeDigits = (str: string) => {
+    const bn = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    return (str || '')
+      .split('')
+      .map((c) => {
+        const i = bn.indexOf(c);
+        return i !== -1 ? i.toString() : c;
+      })
+      .join('')
+      .replace(/[^0-9]/g, '');
+  };
+
+  // Combine customers from saved directory AND from existing memos
+  const allCustomers = useMemo(() => {
+    const map = new Map<string, { id?: string; name: string; phone: string; address: string; note?: string; totalMemos?: number; totalSpent?: number }>();
+
+    // 1. First add from saved customers
+    savedCustomers.forEach((c) => {
+      const key = (c.phone ? normalizeDigits(c.phone) : c.name.toLowerCase()).trim();
+      if (key) {
+        map.set(key, { ...c });
+      }
+    });
+
+    // 2. Merge from memos
     memos.forEach((m) => {
       const name = (m.customerName || '').trim();
       const phone = (m.customerPhone || '').trim();
       const address = (m.customerAddress || '').trim();
 
-      if (name || phone) {
-        const key = (phone || name).toLowerCase();
+      if ((name && name !== 'খুচরা ক্রেতা' && name !== 'Retail Customer') || phone) {
+        const key = (phone ? normalizeDigits(phone) : name.toLowerCase()).trim();
         if (!map.has(key)) {
-          map.set(key, { name, phone, address });
+          map.set(key, {
+            id: `memo-cust-${key}`,
+            name: name || (isBn ? 'গ্রাহক' : 'Customer'),
+            phone: phone,
+            address: address,
+            totalMemos: 1,
+            totalSpent: m.totalAmount || 0,
+          });
         } else {
-          const existing = map.get(key)!;
-          if (!existing.address && address) existing.address = address;
-          if (!existing.phone && phone) existing.phone = phone;
-          if (!existing.name && name) existing.name = name;
+          const ex = map.get(key)!;
+          if (!ex.address && address) ex.address = address;
+          if (!ex.phone && phone) ex.phone = phone;
+          if ((!ex.name || ex.name === 'গ্রাহক' || ex.name === 'Customer') && name) ex.name = name;
+          ex.totalMemos = (ex.totalMemos || 0) + 1;
+          ex.totalSpent = (ex.totalSpent || 0) + (m.totalAmount || 0);
         }
       }
     });
 
     return Array.from(map.values());
-  }, [memos]);
+  }, [savedCustomers, memos, isBn]);
 
-  // Filter customer suggestions
-  const nameSuggestions = React.useMemo(() => {
-    if (!customerName.trim() || previousCustomers.length === 0) return [];
-    const q = customerName.toLowerCase();
-    return previousCustomers.filter((c) => c.name.toLowerCase().includes(q));
-  }, [customerName, previousCustomers]);
+  // Check if current typed input matches an existing customer
+  const matchedExistingCustomer = useMemo(() => {
+    const normPhone = normalizeDigits(customerPhone);
+    const normName = customerName.trim().toLowerCase();
 
-  const phoneSuggestions = React.useMemo(() => {
-    if (!customerPhone.trim() || previousCustomers.length === 0) return [];
-    const q = customerPhone.toLowerCase();
-    return previousCustomers.filter((c) => c.phone.toLowerCase().includes(q));
-  }, [customerPhone, previousCustomers]);
+    if (!normPhone && !normName) return null;
 
-  const selectCustomer = (cust: { name: string; phone: string; address: string }) => {
-    setCustomerName(cust.name);
-    setCustomerPhone(cust.phone);
-    setCustomerAddress(cust.address);
+    return allCustomers.find((c) => {
+      if (normPhone && c.phone && normalizeDigits(c.phone) === normPhone) return true;
+      if (normName && c.name.toLowerCase() === normName && (!normPhone || !c.phone)) return true;
+      return false;
+    });
+  }, [customerPhone, customerName, allCustomers]);
+
+  // Direct save/upsert customer to persistent store
+  const saveCustomerDirectly = (nameToSave: string, phoneToSave: string, addrToSave: string = '', noteToSave: string = '') => {
+    const cName = nameToSave.trim();
+    const cPhone = phoneToSave.trim();
+    const cAddr = addrToSave.trim();
+
+    if (!cName && !cPhone) {
+      alert(isBn ? 'অনুগ্রহ করে গ্রাহকের নাম অথবা মোবাইল নম্বর দিন।' : 'Please enter customer name or phone.');
+      return;
+    }
+
+    const newCustomer: Customer = {
+      id: `cust-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: cName || (isBn ? 'গ্রাহক' : 'Customer'),
+      phone: cPhone,
+      address: cAddr,
+      note: noteToSave,
+      createdAt: new Date().toISOString(),
+      totalMemos: 0,
+      totalSpent: 0,
+    };
+
+    const normP = normalizeDigits(cPhone);
+    const updated = [
+      newCustomer,
+      ...savedCustomers.filter((c) => {
+        if (normP && c.phone && normalizeDigits(c.phone) === normP) return false;
+        if (cName && c.name.toLowerCase() === cName.toLowerCase() && !normP) return false;
+        return true;
+      }),
+    ];
+
+    setSavedCustomers(updated);
+    try {
+      localStorage.setItem('pos_saved_customers_directory', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+
+    setCustomerToast(
+      isBn
+        ? `✓ "${cName || cPhone}" সফলভাবে গ্রাহক তালিকায় সেভ হয়েছে!`
+        : `✓ "${cName || cPhone}" saved to customer directory!`
+    );
+    setTimeout(() => setCustomerToast(null), 3500);
+  };
+
+  const deleteSavedCustomer = (targetPhoneOrName: string) => {
+    const norm = normalizeDigits(targetPhoneOrName);
+    const updated = savedCustomers.filter((c) => {
+      if (norm && c.phone && normalizeDigits(c.phone) === norm) return false;
+      if (c.name.toLowerCase() === targetPhoneOrName.toLowerCase() && !norm) return false;
+      return true;
+    });
+    setSavedCustomers(updated);
+    try {
+      localStorage.setItem('pos_saved_customers_directory', JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Filter customer suggestions with Bengali & English support
+  const nameSuggestions = useMemo(() => {
+    if (allCustomers.length === 0) return [];
+    const q = customerName.trim().toLowerCase();
+    if (!q) {
+      // Top recent customers
+      return allCustomers.slice(0, 8);
+    }
+    const qNorm = normalizeDigits(q);
+    return allCustomers.filter((c) => {
+      const matchName = c.name.toLowerCase().includes(q);
+      const matchPhone = qNorm && c.phone && normalizeDigits(c.phone).includes(qNorm);
+      return matchName || matchPhone;
+    });
+  }, [customerName, allCustomers]);
+
+  const phoneSuggestions = useMemo(() => {
+    if (allCustomers.length === 0) return [];
+    const qNorm = normalizeDigits(customerPhone.trim());
+    if (!qNorm) {
+      return allCustomers.slice(0, 8);
+    }
+    return allCustomers.filter((c) => {
+      const matchPhone = c.phone && normalizeDigits(c.phone).includes(qNorm);
+      const matchName = c.name.toLowerCase().includes(customerPhone.trim().toLowerCase());
+      return matchPhone || matchName;
+    });
+  }, [customerPhone, allCustomers]);
+
+  const selectCustomer = (cust: { name: string; phone: string; address?: string }) => {
+    setCustomerName(cust.name || '');
+    setCustomerPhone(cust.phone || '');
+    setCustomerAddress(cust.address || '');
     setShowNameSuggestions(false);
     setShowPhoneSuggestions(false);
+    setIsCustomerDirectoryOpen(false);
   };
 
   // Auto-calculated unique memo number
@@ -299,7 +446,16 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
   const subtotal = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0);
   
   const discountAmount =
-    discountType === 'percent' ? (subtotal * (discount || 0)) / 100 : Number(discount) || 0;
+    discountType === 'percent'
+      ? (subtotal * (Number(discount) || 0)) / 100
+      : Number(discount) || 0;
+
+  const discountPercent =
+    subtotal > 0
+      ? discountType === 'percent'
+        ? Number(discount) || 0
+        : Number(((discountAmount / subtotal) * 100).toFixed(1))
+      : 0;
 
   const totalAmount = Math.max(0, subtotal - discountAmount + (Number(shipping) || 0));
   
@@ -369,6 +525,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
         subtotal,
         discount: discountAmount,
         discountType,
+        discountPercent: Number(discountPercent.toFixed(1)),
         tax: 0,
         shipping: Number(shipping) || 0,
         totalAmount,
@@ -381,6 +538,11 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
 
       const savedMemo = await onSaveMemo(memoPayload);
       if (savedMemo) {
+        // Automatically ensure this customer is stored in saved customers directory
+        if (customerName.trim() || customerPhone.trim()) {
+          saveCustomerDirectly(customerName, customerPhone, customerAddress);
+        }
+
         if (andPrint) {
           onPrintMemo(savedMemo);
         }
@@ -426,56 +588,98 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
         <div className="lg:col-span-2 space-y-6">
           {/* Customer & Memo Details Card */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-sm space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-              <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+            {/* Customer Header with Directory & Add New Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-emerald-50 text-emerald-600 rounded-xl border border-emerald-100">
                   <User className="w-4 h-4" />
                 </span>
-                <span>{isBn ? 'গ্রাহক ও মেমো তথ্য (Customer & Memo Info)' : 'Customer & Memo Details'}</span>
-              </h3>
-
-              {/* Previous Customer Quick Select Dropdown */}
-              {previousCustomers.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-slate-500 hidden sm:inline flex items-center gap-1">
-                    <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>{isBn ? 'পুরাতন কাস্টমার:' : 'Previous Customer:'}</span>
-                  </span>
-                  <select
-                    onChange={(e) => {
-                      const idx = e.target.value;
-                      if (idx !== '') {
-                        const cust = previousCustomers[Number(idx)];
-                        if (cust) selectCustomer(cust);
-                      }
-                    }}
-                    value=""
-                    className="text-xs px-3 py-1.5 font-bold border border-emerald-300 rounded-xl bg-emerald-50/70 text-emerald-900 focus:ring-2 focus:ring-emerald-500 outline-none shadow-2xs cursor-pointer"
-                  >
-                    <option value="" disabled>
-                      ⚡ {isBn ? `-- কাস্টমার অটো-ফিল (${previousCustomers.length} জন) --` : `-- Select Customer (${previousCustomers.length}) --`}
-                    </option>
-                    {previousCustomers.map((c, idx) => (
-                      <option key={idx} value={idx}>
-                        {c.name || 'Unnamed'} {c.phone ? `(${c.phone})` : ''} {c.address ? `- ${c.address}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                <div>
+                  <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                    {isBn ? 'গ্রাহকের তথ্য (Customer Details)' : 'Customer Details'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    {isBn ? 'নাম বা ফোন নম্বর দিলে পূর্বে সেভ করা তথ্য অটো চলে আসবে' : 'Type name or phone for instant suggestions'}
+                  </p>
                 </div>
-              )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Customer Directory Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsCustomerDirectoryOpen(true)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                  title={isBn ? 'সব সংরক্ষিত গ্রাহক তালিকা দেখুন ও খুঁজুন' : 'Open saved customer directory'}
+                >
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{isBn ? `গ্রাহক তালিকা (${allCustomers.length})` : `Customers (${allCustomers.length})`}</span>
+                </button>
+
+                {/* Add New Customer Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalCustName(customerName);
+                    setModalCustPhone(customerPhone);
+                    setModalCustAddress(customerAddress);
+                    setIsNewCustomerModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{isBn ? '+ নতুন গ্রাহক যোগ' : '+ Add Customer'}</span>
+                </button>
+              </div>
             </div>
 
+            {/* Quick Customer Picker Dropdown (if any customers exist) */}
+            {allCustomers.length > 0 && (
+              <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-200/80">
+                <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1 shrink-0 pl-1">
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{isBn ? 'দ্রুত গ্রাহক নির্বাচন:' : 'Quick Select:'}</span>
+                </span>
+                <select
+                  onChange={(e) => {
+                    const idx = e.target.value;
+                    if (idx !== '') {
+                      const cust = allCustomers[Number(idx)];
+                      if (cust) selectCustomer(cust);
+                    }
+                  }}
+                  value=""
+                  className="w-full text-xs px-3 py-1.5 font-bold border border-emerald-300 rounded-xl bg-white text-emerald-950 focus:ring-2 focus:ring-emerald-500 outline-none shadow-2xs cursor-pointer"
+                >
+                  <option value="" disabled>
+                    ⚡ {isBn ? `-- পূর্বের কাস্টমার বাছাই করুন (${allCustomers.length} জন সংরক্ষিত) --` : `-- Pick Saved Customer (${allCustomers.length}) --`}
+                  </option>
+                  {allCustomers.map((c, idx) => (
+                    <option key={idx} value={idx}>
+                      {c.name || 'Unnamed'} {c.phone ? `(${c.phone})` : ''} {c.address ? `- ${c.address}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Customer Inputs Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Customer Name Field */}
               <div className="relative">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  {isBn ? 'গ্রাহকের নাম (Customer Name)' : 'Customer Name'}
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>{isBn ? 'গ্রাহকের নাম (Customer Name)' : 'Customer Name'}</span>
+                  {matchedExistingCustomer && (
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                      ✓ {isBn ? 'সংরক্ষিত' : 'Saved'}
+                    </span>
+                  )}
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
-                    placeholder={isBn ? 'নাম টাইপ করুন' : 'Type customer name'}
+                    placeholder={isBn ? 'নাম লিখুন (যেমন: আরিফুল ইসলাম)' : 'Type customer name'}
                     value={customerName}
                     onChange={(e) => {
                       setCustomerName(e.target.value);
@@ -492,7 +696,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                     <div className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase border-b border-slate-100 flex justify-between items-center">
                       <span className="flex items-center gap-1 text-emerald-700">
                         <Users className="w-3 h-3" />
-                        {isBn ? 'পুরাতন কাস্টমার তালিকা' : 'Matching Previous Customers'}
+                        {isBn ? 'কাস্টমার তালিকা থেকে সাজেশন' : 'Saved Customer Suggestions'}
                       </span>
                       <button
                         type="button"
@@ -530,8 +734,11 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
 
               {/* Mobile Phone Field */}
               <div className="relative">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  {isBn ? 'মোবাইল নম্বর (Phone)' : 'Mobile Phone'}
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>{isBn ? 'মোবাইল নম্বর (Phone)' : 'Mobile Phone'}</span>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    {isBn ? 'বাংলা/ইংরেজি উভয় সাপোর্ট' : 'BN/EN digits'}
+                  </span>
                 </label>
                 <div className="relative">
                   <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -588,100 +795,182 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                 )}
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-slate-700">
-                    {isBn ? 'মেমো নম্বর (Memo No)' : 'Memo Number'}
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    {isDuplicateMemo ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full bg-rose-100 text-rose-700">
-                        <AlertCircle className="w-3 h-3" />
-                        {isBn ? 'ডুপ্লিকেট' : 'Duplicate'}
-                      </span>
-                    ) : isManualMemoNo ? (
-                      <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-amber-100 text-amber-700">
-                        {isBn ? 'কাস্টম' : 'Custom'}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-700">
-                        <Sparkles className="w-3 h-3" />
-                        {isBn ? 'অটো' : 'Auto'}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsManualMemoNo(false);
-                        setMemoNo(autoMemoInfo.memoNo);
-                      }}
-                      title={isBn ? 'স্বয়ংক্রিয় পরবর্তী ইউনিক নম্বর সেট করুন' : 'Reset to next auto number'}
-                      className="text-xs text-emerald-700 hover:text-emerald-800 p-1 hover:bg-emerald-50 rounded-lg transition"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={memoNo}
-                    onChange={(e) => {
-                      setIsManualMemoNo(true);
-                      setMemoNo(e.target.value);
-                    }}
-                    placeholder={autoMemoInfo.memoNo}
-                    className={`w-full px-3 py-2 text-sm font-mono font-bold rounded-xl outline-none transition ${
-                      isDuplicateMemo
-                        ? 'border-2 border-rose-300 bg-rose-50/50 text-rose-800 focus:ring-2 focus:ring-rose-500'
-                        : 'border border-emerald-200 bg-emerald-50/40 text-emerald-800 focus:ring-2 focus:ring-emerald-500'
-                    }`}
-                  />
-                </div>
-                {isDuplicateMemo && (
-                  <div className="mt-1 flex items-center justify-between text-xs text-rose-600 font-medium">
-                    <span>{isBn ? 'এই নম্বরটি আগে ব্যবহৃত হয়েছে!' : 'Already exists!'}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsManualMemoNo(false);
-                        setMemoNo(autoMemoInfo.memoNo);
-                      }}
-                      className="font-bold underline text-emerald-700 hover:text-emerald-800 ml-1"
-                    >
-                      {isBn ? `অটো ${autoMemoInfo.memoNo} বসান` : `Use ${autoMemoInfo.memoNo}`}
-                    </button>
-                  </div>
-                )}
-              </div>
-
+              {/* Customer Address Field */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  {isBn ? 'তারিখ (Date)' : 'Invoice Date'}
-                </label>
-                <div className="relative">
-                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="date"
-                    value={memoDate}
-                    onChange={(e) => setMemoDate(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200/90 rounded-xl bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none font-medium transition"
-                  />
-                </div>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  {isBn ? 'ঠিকানা (Address)' : 'Customer Address'}
+                  {isBn ? 'ঠিকানা (Customer Address)' : 'Customer Address'}
                 </label>
                 <div className="relative">
                   <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
-                    placeholder={isBn ? 'ঠিকানা (যেমন: ঢাকা)' : 'Address'}
+                    placeholder={isBn ? 'ঠিকানা (যেমন: মিরপুর ১০, ঢাকা)' : 'Address (e.g. Dhaka)'}
                     value={customerAddress}
                     onChange={(e) => setCustomerAddress(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200/90 rounded-xl bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none font-medium transition"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Smart Customer Status & Quick Save Prompt */}
+            {customerToast ? (
+              <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{customerToast}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCustomerToast(null)}
+                  className="text-emerald-700 hover:text-emerald-900 text-xs px-1 cursor-pointer font-extrabold"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : matchedExistingCustomer ? (
+              <div className="bg-emerald-50/70 border border-emerald-200/80 p-2.5 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs text-emerald-900">
+                <div className="flex items-center gap-2 font-bold">
+                  <span className="p-1 bg-emerald-100 rounded-lg text-emerald-700">
+                    <UserCheck className="w-3.5 h-3.5" />
+                  </span>
+                  <span>
+                    {isBn ? '✓ সংরক্ষিত গ্রাহক:' : '✓ Saved Customer:'}{' '}
+                    <span className="text-emerald-800 underline">{matchedExistingCustomer.name}</span>
+                    {matchedExistingCustomer.phone ? ` (${matchedExistingCustomer.phone})` : ''}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-[11px]">
+                  {matchedExistingCustomer.address && (
+                    <span className="text-slate-500 hidden sm:inline">{matchedExistingCustomer.address}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => saveCustomerDirectly(customerName, customerPhone, customerAddress)}
+                    className="text-emerald-700 hover:text-emerald-900 font-extrabold underline cursor-pointer"
+                    title={isBn ? 'নতুন তথ্য দিয়ে আপডেট করুন' : 'Update customer info'}
+                  >
+                    {isBn ? 'তথ্য আপডেট করুন' : 'Update Info'}
+                  </button>
+                </div>
+              </div>
+            ) : (customerName.trim() || customerPhone.trim()) ? (
+              <div className="bg-blue-50/90 border border-blue-200 p-2.5 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs text-blue-950">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 bg-blue-100 rounded-lg text-blue-700">
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </span>
+                  <span className="font-bold">
+                    {isBn
+                      ? 'নতুন গ্রাহক পাওয়া গেছে! ভবিষ্যতে দ্রুত পেতে এই গ্রাহককে সেভ করতে চান?'
+                      : 'New customer detected! Would you like to save this customer for future use?'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => saveCustomerDirectly(customerName, customerPhone, customerAddress)}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-extrabold px-3 py-1 rounded-lg text-xs flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                >
+                  <BookmarkPlus className="w-3.5 h-3.5" />
+                  <span>{isBn ? 'এই গ্রাহক সেভ করুন' : 'Save This Customer'}</span>
+                </button>
+              </div>
+            ) : null}
+
+            {/* Sub-section: Memo Details (Invoice No, Date, Time) */}
+            <div className="border-t border-slate-100 pt-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-bold text-slate-700">
+                      {isBn ? 'মেমো নম্বর (Memo No)' : 'Memo Number'}
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      {isDuplicateMemo ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full bg-rose-100 text-rose-700">
+                          <AlertCircle className="w-3 h-3" />
+                          {isBn ? 'ডুপ্লিকেট' : 'Duplicate'}
+                        </span>
+                      ) : isManualMemoNo ? (
+                        <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-amber-100 text-amber-700">
+                          {isBn ? 'কাস্টম' : 'Custom'}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-700">
+                          <Sparkles className="w-3 h-3" />
+                          {isBn ? 'অটো' : 'Auto'}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsManualMemoNo(false);
+                          setMemoNo(autoMemoInfo.memoNo);
+                        }}
+                        title={isBn ? 'স্বয়ংক্রিয় পরবর্তী ইউনিক নম্বর সেট করুন' : 'Reset to next auto number'}
+                        className="text-xs text-emerald-700 hover:text-emerald-800 p-1 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={memoNo}
+                      onChange={(e) => {
+                        setIsManualMemoNo(true);
+                        setMemoNo(e.target.value);
+                      }}
+                      placeholder={autoMemoInfo.memoNo}
+                      className={`w-full px-3 py-2 text-sm font-mono font-bold rounded-xl outline-none transition ${
+                        isDuplicateMemo
+                          ? 'border-2 border-rose-300 bg-rose-50/50 text-rose-800 focus:ring-2 focus:ring-rose-500'
+                          : 'border border-emerald-200 bg-emerald-50/40 text-emerald-800 focus:ring-2 focus:ring-emerald-500'
+                      }`}
+                    />
+                  </div>
+                  {isDuplicateMemo && (
+                    <div className="mt-1 flex items-center justify-between text-xs text-rose-600 font-medium">
+                      <span>{isBn ? 'এই নম্বরটি আগে ব্যবহৃত হয়েছে!' : 'Already exists!'}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsManualMemoNo(false);
+                          setMemoNo(autoMemoInfo.memoNo);
+                        }}
+                        className="font-bold underline text-emerald-700 hover:text-emerald-800 ml-1 cursor-pointer"
+                      >
+                        {isBn ? `অটো ${autoMemoInfo.memoNo} বসান` : `Use ${autoMemoInfo.memoNo}`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    {isBn ? 'তারিখ (Date)' : 'Invoice Date'}
+                  </label>
+                  <div className="relative">
+                    <Calendar className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="date"
+                      value={memoDate}
+                      onChange={(e) => setMemoDate(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200/90 rounded-xl bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none font-medium transition"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    {isBn ? 'সময় (Time)' : 'Time'}
+                  </label>
+                  <input
+                    type="time"
+                    value={memoTime}
+                    onChange={(e) => setMemoTime(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200/90 rounded-xl bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none font-medium transition"
                   />
                 </div>
               </div>
@@ -1020,18 +1309,25 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
               </span>
             </div>
 
-            {/* Discount */}
-            <div className="space-y-1.5">
+            {/* Discount with Live % Indicator */}
+            <div className="space-y-2 p-3 bg-slate-50/80 rounded-2xl border border-slate-200/80">
               <div className="flex justify-between items-center">
-                <label className="text-xs font-bold text-slate-700">
-                  {isBn ? 'ছাড় (Discount):' : 'Discount:'}
-                </label>
-                <div className="flex border border-slate-200 rounded-xl overflow-hidden text-[11px] font-bold p-0.5 bg-slate-100">
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-bold text-slate-800">
+                    {isBn ? 'ছাড় / ডিসকাউন্ট (Discount):' : 'Discount:'}
+                  </label>
+                  {discountAmount > 0 && (
+                    <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      {discountPercent.toFixed(1)}% {isBn ? 'ছাড়' : 'OFF'}
+                    </span>
+                  )}
+                </div>
+                <div className="flex border border-slate-200 rounded-xl overflow-hidden text-[11px] font-bold p-0.5 bg-white shadow-2xs">
                   <button
                     type="button"
                     onClick={() => setDiscountType('flat')}
-                    className={`px-2.5 py-0.5 rounded-lg transition ${
-                      discountType === 'flat' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600'
+                    className={`px-2.5 py-0.5 rounded-lg transition cursor-pointer ${
+                      discountType === 'flat' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     {currency} Flat
@@ -1039,22 +1335,99 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                   <button
                     type="button"
                     onClick={() => setDiscountType('percent')}
-                    className={`px-2.5 py-0.5 rounded-lg transition ${
-                      discountType === 'percent' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600'
+                    className={`px-2.5 py-0.5 rounded-lg transition cursor-pointer ${
+                      discountType === 'percent' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
                     %
                   </button>
                 </div>
               </div>
-              <input
-                type="number"
-                min="0"
-                value={discount || ''}
-                onChange={(e) => setDiscount(Number(e.target.value))}
-                placeholder="0"
-                className="w-full px-3 py-2 text-sm font-mono font-bold border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50/50"
-              />
+
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  value={discount || ''}
+                  onChange={(e) => setDiscount(Number(e.target.value))}
+                  placeholder={discountType === 'percent' ? "e.g. 10%" : "e.g. 50"}
+                  className="w-full px-3 py-2 text-sm font-mono font-bold border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
+                />
+                {discountType === 'percent' && (
+                  <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">
+                    %
+                  </span>
+                )}
+              </div>
+
+              {/* Live Discount Percentage & Amount Feedback Banner */}
+              {discountAmount > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-2 rounded-xl text-xs font-bold flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>{isBn ? 'মোট ছাড়ের হার:' : 'Total Discount Rate:'}</span>
+                    <span className="text-emerald-700 font-extrabold underline font-mono text-sm">
+                      {discountPercent.toFixed(1)}%
+                    </span>
+                  </span>
+                  <span className="text-emerald-800 font-mono font-black">
+                    - {currency} {discountAmount.toLocaleString()}
+                  </span>
+                </div>
+              )}
+
+              {/* Quick Discount Presets */}
+              <div className="flex flex-wrap items-center gap-1 pt-1">
+                <span className="text-[10px] text-slate-400 font-bold mr-0.5">
+                  {isBn ? 'কুইক ছাড়:' : 'Presets:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDiscountType('percent');
+                    setDiscount(0);
+                  }}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                    discount === 0 ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {isBn ? '০% (নাই)' : '0%'}
+                </button>
+                {[5, 10, 15, 20].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => {
+                      setDiscountType('percent');
+                      setDiscount(pct);
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                      discountType === 'percent' && discount === pct
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+                {[50, 100].map((flatVal) => (
+                  <button
+                    key={`flat-${flatVal}`}
+                    type="button"
+                    onClick={() => {
+                      setDiscountType('flat');
+                      setDiscount(flatVal);
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                      discountType === 'flat' && discount === flatVal
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ৳{flatVal}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Shipping / Delivery */}
@@ -1118,6 +1491,32 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Calculation summary line items */}
+            {(discountAmount > 0 || Number(shipping) > 0) && (
+              <div className="bg-emerald-50/50 p-2.5 rounded-xl border border-emerald-100 text-xs space-y-1 font-medium">
+                <div className="flex justify-between text-slate-600">
+                  <span>{isBn ? 'সাবটোটাল:' : 'Subtotal:'}</span>
+                  <span className="font-mono font-bold">{currency} {subtotal.toLocaleString()}</span>
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-emerald-700 font-bold">
+                    <span className="flex items-center gap-1">
+                      <span>{isBn ? 'ছাড় (' : 'Discount ('}</span>
+                      <span className="underline font-mono">{discountPercent.toFixed(1)}%</span>
+                      <span>):</span>
+                    </span>
+                    <span className="font-mono">- {currency} {discountAmount.toLocaleString()}</span>
+                  </div>
+                )}
+                {Number(shipping) > 0 && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>{isBn ? 'ডেলিভারি চার্জ:' : 'Delivery Fee:'}</span>
+                    <span className="font-mono font-bold">+ {currency} {Number(shipping).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Grand Total Highlight Box - Bento Dark Box */}
             <div className="bg-slate-900 text-white p-4.5 rounded-2xl shadow-sm space-y-1 border border-slate-800">
@@ -1253,6 +1652,303 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Customer Directory Modal */}
+      {isCustomerDirectoryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <Users className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-800">
+                    {isBn ? 'সংরক্ষিত গ্রাহক ডিরেক্টরি' : 'Customer Directory'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {isBn
+                      ? `মোট ${allCustomers.length} জন গ্রাহক সংরক্ষিত আছেন`
+                      : `Total ${allCustomers.length} customers registered`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalCustName('');
+                    setModalCustPhone('');
+                    setModalCustAddress('');
+                    setIsNewCustomerModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isBn ? '+ নতুন গ্রাহক' : '+ New Customer'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomerDirectoryOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-200/60 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Search Bar */}
+            <div className="p-4 border-b border-slate-100 bg-white">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder={isBn ? 'নাম, ফোন নম্বর বা ঠিকানা দিয়ে খুঁজুন...' : 'Search by name, phone or address...'}
+                  value={directorySearchQuery}
+                  onChange={(e) => setDirectorySearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-emerald-500 outline-none transition"
+                />
+                {directorySearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setDirectorySearchQuery('')}
+                    className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-slate-600 font-bold p-1 cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Customers List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+              {(() => {
+                const q = directorySearchQuery.trim().toLowerCase();
+                const normQ = normalizeDigits(q);
+                const filtered = allCustomers.filter((c) => {
+                  if (!q) return true;
+                  if (c.name.toLowerCase().includes(q)) return true;
+                  if (c.phone && normalizeDigits(c.phone).includes(normQ)) return true;
+                  if (c.address && c.address.toLowerCase().includes(q)) return true;
+                  return false;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-400 space-y-3">
+                      <Users className="w-10 h-10 mx-auto text-slate-300 opacity-60" />
+                      <p className="text-sm font-bold text-slate-500">
+                        {isBn ? 'কোনো গ্রাহক পাওয়া যায়নি' : 'No customers found'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModalCustName(directorySearchQuery);
+                          setIsNewCustomerModalOpen(true);
+                        }}
+                        className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-500 transition cursor-pointer"
+                      >
+                        {isBn ? `"${directorySearchQuery}" নামে নতুন গ্রাহক যোগ করুন` : 'Add as new customer'}
+                      </button>
+                    </div>
+                  );
+                }
+
+                return filtered.map((cust, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3.5 rounded-2xl border border-slate-200/90 hover:border-emerald-300 bg-white hover:bg-emerald-50/30 transition flex flex-wrap items-center justify-between gap-3 group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100/70 text-emerald-800 font-bold flex items-center justify-center text-sm uppercase shrink-0">
+                        {cust.name ? cust.name.slice(0, 2) : 'GR'}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-extrabold text-slate-900">{cust.name}</span>
+                          {cust.totalMemos && cust.totalMemos > 1 && (
+                            <span className="px-1.5 py-0.2 text-[10px] font-bold rounded bg-emerald-100 text-emerald-800">
+                              {cust.totalMemos} {isBn ? 'বার ক্রয়' : 'orders'}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 text-xs text-slate-500 mt-0.5">
+                          {cust.phone && (
+                            <span className="font-mono font-bold text-emerald-700 flex items-center gap-1">
+                              <Phone className="w-3 h-3 text-emerald-600" />
+                              {cust.phone}
+                            </span>
+                          )}
+                          {cust.address && (
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <MapPin className="w-3 h-3 text-slate-400" />
+                              {cust.address}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectCustomer(cust);
+                          setIsCustomerDirectoryOpen(false);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{isBn ? 'মেমোতে বসান' : 'Use in Memo'}</span>
+                      </button>
+
+                      {/* Option to remove from saved list */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(isBn ? `আপনি কি "${cust.name}" কে সংরক্ষিত তালিকা থেকে মুছে ফেলতে চান?` : `Delete "${cust.name}" from saved list?`)) {
+                            deleteSavedCustomer(cust.phone || cust.name);
+                          }
+                        }}
+                        className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                        title={isBn ? 'তালিকা থেকে মুছে ফেলুন' : 'Delete'}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add New Customer Modal */}
+      {isNewCustomerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <BookmarkPlus className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-800">
+                    {isBn ? 'নতুন গ্রাহক যোগ করুন' : 'Add New Customer'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {isBn ? 'একবার সেভ করলে ভবিষ্যতে অটো সাজেশন আসবে' : 'Saved customer will appear in instant search'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewCustomerModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {isBn ? 'গ্রাহকের নাম (Customer Name) *' : 'Customer Name *'}
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={modalCustName}
+                    onChange={(e) => setModalCustName(e.target.value)}
+                    placeholder={isBn ? 'যেমন: আরিফ মাহমুদ' : 'e.g. Arif Mahmud'}
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>{isBn ? 'মোবাইল নম্বর (Phone Number) *' : 'Phone Number *'}</span>
+                  <span className="text-[10px] text-slate-400">
+                    {isBn ? 'বাংলা/ইংরেজি উভয় গ্রহণযোগ্য' : 'BN/EN digits allowed'}
+                  </span>
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={modalCustPhone}
+                    onChange={(e) => setModalCustPhone(e.target.value)}
+                    placeholder="01712345678"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {isBn ? 'ঠিকানা (Address)' : 'Address'}
+                </label>
+                <div className="relative">
+                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={modalCustAddress}
+                    onChange={(e) => setModalCustAddress(e.target.value)}
+                    placeholder={isBn ? 'যেমন: মিরপুর ১০, ঢাকা' : 'e.g. Mirpur, Dhaka'}
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {isBn ? 'বিশেষ নোট বা মন্তব্য (ঐচ্ছিক)' : 'Notes (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  value={modalCustNote}
+                  onChange={(e) => setModalCustNote(e.target.value)}
+                  placeholder={isBn ? 'যেমন: বিশ্বস্ত নিয়মিত ক্রেতা' : 'e.g. VIP Customer'}
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsNewCustomerModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              >
+                {isBn ? 'বাতিল' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!modalCustName.trim() && !modalCustPhone.trim()) {
+                    alert(isBn ? 'অনুগ্রহ করে নাম অথবা ফোন নম্বর প্রদান করুন।' : 'Please enter customer name or phone.');
+                    return;
+                  }
+                  saveCustomerDirectly(modalCustName, modalCustPhone, modalCustAddress, modalCustNote);
+                  // Also populate into the current memo
+                  setCustomerName(modalCustName.trim());
+                  setCustomerPhone(modalCustPhone.trim());
+                  setCustomerAddress(modalCustAddress.trim());
+                  setIsNewCustomerModalOpen(false);
+                }}
+                className="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-md shadow-emerald-600/20 transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4" />
+                <span>{isBn ? 'সেভ করুন ও মেমোতে বসান' : 'Save & Use in Memo'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

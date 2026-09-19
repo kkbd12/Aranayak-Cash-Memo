@@ -33,7 +33,8 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [price, setPrice] = useState<number | ''>('');
-  const [unit, setUnit] = useState('কেজি');
+  const [baseQuantity, setBaseQuantity] = useState<number | ''>(100);
+  const [unit, setUnit] = useState('গ্রাম');
   const [category, setCategory] = useState('খাদ্যপণ্য');
   const [stock, setStock] = useState<number | ''>(100);
   const [variants, setVariants] = useState<ProductVariant[]>([]);
@@ -62,7 +63,8 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     const autoSKU = generateAutoSKU(products, 'খাদ্যপণ্য');
     setCode(autoSKU);
     setPrice('');
-    setUnit('কেজি');
+    setBaseQuantity(100);
+    setUnit('গ্রাম');
     setCategory('খাদ্যপণ্য');
     setStock(100);
     setVariants([]);
@@ -75,7 +77,8 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
     setName(p.name);
     setCode(p.code || generateAutoSKU(products, p.category));
     setPrice(p.price);
-    setUnit(p.unit);
+    setBaseQuantity(p.baseQuantity || (p.unit === 'গ্রাম' ? 100 : 1));
+    setUnit(p.unit || 'গ্রাম');
     setCategory(p.category || 'খাদ্যপণ্য');
     setStock(p.stock || 0);
     const existingVariants = p.variants ? p.variants.map((v) => ({ ...v })) : [];
@@ -89,7 +92,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
       id: `var-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name: presetName,
       price: 0,
-      unit: presetUnit || unit || 'পিস',
+      unit: presetUnit || unit || 'গ্রাম',
     };
     setVariants((prev) => [...prev, newV]);
   };
@@ -121,31 +124,23 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
         unit: v.unit || unit,
       }));
 
-    let finalPrice = Number(price) || 0;
-    let finalUnit = unit;
+    const finalPrice = Number(price) || 0;
+    const finalBaseQty = Number(baseQuantity) || (unit === 'গ্রাম' ? 100 : 1);
 
-    if (pricingMode === 'variants') {
-      if (validVariants.length === 0) {
-        alert(isBn ? 'অনুগ্রহ করে অন্তত একটি ওজন বা সাইজের নাম ও বিক্রয় মূল্য লিখুন।' : 'Please add at least one weight/size and price.');
-        return;
-      }
-      finalPrice = validVariants[0].price;
-      finalUnit = validVariants[0].unit || unit;
-    } else {
-      if (price === '' || isNaN(finalPrice) || finalPrice < 0) {
-        alert(isBn ? 'অনুগ্রহ করে পণ্যের বিক্রয় মূল্য লিখুন।' : 'Please enter a valid selling price.');
-        return;
-      }
+    if (price === '' || isNaN(finalPrice) || finalPrice < 0) {
+      alert(isBn ? 'অনুগ্রহ করে পণ্যের বিক্রয় মূল্য লিখুন।' : 'Please enter a valid selling price.');
+      return;
     }
 
     const payload = {
       name: name.trim(),
       code: finalCode,
       price: finalPrice,
-      unit: finalUnit,
+      baseQuantity: finalBaseQty,
+      unit: unit,
       category,
       stock: Number(stock) || 0,
-      variants: pricingMode === 'variants' ? validVariants : [],
+      variants: validVariants,
     };
 
     if (editingProduct) {
@@ -264,7 +259,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                       <div className="font-mono font-black text-emerald-700 text-sm">
                         {currency} {p.price.toLocaleString()}
                         <span className="text-[11px] text-slate-500 font-normal font-sans ml-1">
-                          / {p.unit}
+                          / {p.baseQuantity && p.baseQuantity > 1 ? `${p.baseQuantity} ${p.unit}` : p.unit}
                         </span>
                       </div>
                       {p.variants && p.variants.length > 0 && (
@@ -273,7 +268,9 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                         </span>
                       )}
                     </td>
-                    <td className="p-3.5 text-center font-bold text-slate-700">{p.unit}</td>
+                    <td className="p-3.5 text-center font-bold text-slate-700">
+                      {p.baseQuantity && p.baseQuantity > 1 ? `${p.baseQuantity} ${p.unit}` : p.unit}
+                    </td>
                     <td className="p-3.5 text-center">
                       <span
                         className={`font-mono font-black px-2.5 py-1 rounded-full text-xs ${
@@ -353,139 +350,197 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               </div>
 
               {/* Product Pricing & Weight Section */}
-              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/90 space-y-3.5">
+              <div className="bg-slate-50/90 p-4 rounded-2xl border border-slate-200 space-y-3.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
                     <Scale className="w-4 h-4 text-emerald-600" />
-                    {isBn ? 'পণ্যের ওজন/সাইজ ও বিক্রয় মূল্য নির্ধারণ*' : 'Product Weight & Selling Price*'}
+                    <span>{isBn ? 'পণ্যের ওজন/পরিমাণ ও বিক্রয় মূল্য নির্ধারণ*' : 'Product Weight/Quantity & Selling Price*'}</span>
                   </label>
-                  <span className="text-[10px] text-slate-500 font-bold">
-                    {isBn ? 'বিক্রয়ের ধরণ:' : 'Pricing Mode:'}
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+                    {isBn ? 'ওজন ও মূল্য' : 'Weight & Price'}
                   </span>
                 </div>
 
-                {/* Mode Selector Tabs */}
-                <div className="grid grid-cols-2 gap-2 p-1 bg-white rounded-xl border border-slate-200 shadow-2xs">
-                  <button
-                    type="button"
-                    onClick={() => setPricingMode('single')}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                      pricingMode === 'single'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Package className="w-3.5 h-3.5" />
-                    <span>{isBn ? 'একক ওজন / সাইজের পণ্য' : 'Single Weight / Pack'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPricingMode('variants');
-                      if (variants.length === 0) {
-                        addVariantRow('১ কেজি', 'কেজি');
-                      }
-                    }}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                      pricingMode === 'variants'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>{isBn ? 'বিভিন্ন ওজন অনুযায়ী বিক্রয় মূল্য' : 'Multiple Weights / Sizes'}</span>
-                  </button>
-                </div>
-
-                {pricingMode === 'single' ? (
-                  <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 space-y-3 shadow-2xs">
-                    <p className="text-[11px] text-slate-600 font-medium">
-                      {isBn
-                        ? '💡 যেমন: ১ কেজি সাবান, ১ প্যাকেট বিস্কুট বা ১ বস্তা চালের নির্দিষ্ট বিক্রয় মূল্য লিখুন।'
-                        : '💡 Set standard unit and selling price for this product.'}
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                          {isBn ? 'ওজন / পরিমাপের একক*' : 'Unit of Measure*'}
-                        </label>
-                        <select
-                          value={unit}
-                          onChange={(e) => setUnit(e.target.value)}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50/50 outline-none font-bold focus:ring-2 focus:ring-emerald-500"
-                        >
-                          <option value="কেজি">কেজি (kg)</option>
-                          <option value="গ্রাম">গ্রাম (gm)</option>
-                          <option value="লিটার">লিটার (ltr)</option>
-                          <option value="জার">জার (Jar)</option>
-                          <option value="বোতল">বোতল (btl)</option>
-                          <option value="পিস">পিস (pc)</option>
-                          <option value="প্যাকেট">প্যাকেট (pkt)</option>
-                          <option value="ডজন">ডজন (doz)</option>
-                          <option value="কার্টন">কার্টন (ctn)</option>
-                          <option value="বক্স">বক্স (box)</option>
-                          <option value="বস্তা">বস্তা (sack)</option>
-                        </select>
+                {/* 3 Main Fields: Weight/Gram/Quantity + Unit + Selling Price */}
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    {/* 1. Weight / Gram / Quantity */}
+                    <div className="sm:col-span-5">
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1 flex items-center justify-between">
+                        <span>{isBn ? 'কত গ্রাম / ওজন / পরিমাণ*' : 'Weight / Gram / Qty*'}</span>
+                        <span className="text-[10px] text-emerald-700 font-bold">{unit}</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          required
+                          min="0.001"
+                          step="any"
+                          placeholder={unit === 'গ্রাম' ? 'যেমন: ১০০ বা ৫০' : 'যেমন: ১ বা ৫০০'}
+                          value={baseQuantity}
+                          onChange={(e) => setBaseQuantity(e.target.value === '' ? '' : Number(e.target.value))}
+                          className="w-full px-3 py-2 text-sm font-mono font-bold border-2 border-emerald-500 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-emerald-50/20 text-emerald-950"
+                        />
                       </div>
+                    </div>
 
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                          {isBn ? 'বিক্রয় মূল্য (Selling Price)*' : 'Selling Price*'}
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">{currency}</span>
-                          <input
-                            type="number"
-                            required={pricingMode === 'single'}
-                            min="0"
-                            step="any"
-                            placeholder="যেমন: ১২০"
-                            value={price}
-                            onChange={(e) => setPrice(e.target.value === '' ? '' : Number(e.target.value))}
-                            className="w-full pl-7 pr-3.5 py-2 text-xs font-mono font-bold border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50/50"
-                          />
-                        </div>
+                    {/* 2. Unit of Measure */}
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                        {isBn ? 'পরিমাপের একক*' : 'Unit*'}
+                      </label>
+                      <select
+                        value={unit}
+                        onChange={(e) => {
+                          const newUnit = e.target.value;
+                          setUnit(newUnit);
+                          if (newUnit === 'গ্রাম' && (baseQuantity === 1 || !baseQuantity)) {
+                            setBaseQuantity(100);
+                          } else if (newUnit !== 'গ্রাম' && baseQuantity === 100) {
+                            setBaseQuantity(1);
+                          }
+                        }}
+                        className="w-full px-2.5 py-2 text-xs border border-slate-300 rounded-xl bg-slate-50 font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="গ্রাম">গ্রাম (gm)</option>
+                        <option value="কেজি">কেজি (kg)</option>
+                        <option value="লিটার">লিটার (ltr)</option>
+                        <option value="মিলি">মিলি (ml)</option>
+                        <option value="জার">জার (Jar)</option>
+                        <option value="বোতল">বোতল (btl)</option>
+                        <option value="পিস">পিস (pc)</option>
+                        <option value="প্যাকেট">প্যাকেট (pkt)</option>
+                        <option value="ডজন">ডজন (doz)</option>
+                        <option value="কার্টন">কার্টন (ctn)</option>
+                        <option value="বক্স">বক্স (box)</option>
+                        <option value="বস্তা">বস্তা (sack)</option>
+                      </select>
+                    </div>
+
+                    {/* 3. Selling Price */}
+                    <div className="sm:col-span-4">
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                        {isBn ? 'বিক্রয় মূল্য (Selling Price)*' : 'Selling Price*'}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-xs font-bold text-slate-400">{currency}</span>
+                        <input
+                          type="number"
+                          required
+                          min="0"
+                          step="any"
+                          placeholder="যেমন: ৩৫০"
+                          value={price}
+                          onChange={(e) => setPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                          className="w-full pl-7 pr-3 py-2 text-sm font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none bg-slate-50/50"
+                        />
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="space-y-3 bg-white p-3.5 rounded-xl border border-emerald-200 shadow-2xs">
+
+                  {/* Quick Presets for weight & unit */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-500 mr-1">
+                      {isBn ? '⚡ দ্রুত ওজন সিলেক্ট করুন:' : '⚡ Quick Weight:'}
+                    </span>
+                    {[
+                      { qty: 50, u: 'গ্রাম', label: '৫০ গ্রাম' },
+                      { qty: 100, u: 'গ্রাম', label: '১০০ গ্রাম' },
+                      { qty: 250, u: 'গ্রাম', label: '২৫০ গ্রাম' },
+                      { qty: 500, u: 'গ্রাম', label: '৫০০ গ্রাম' },
+                      { qty: 1, u: 'কেজি', label: '১ কেজি' },
+                      { qty: 1, u: 'লিটার', label: '১ লিটার' },
+                      { qty: 1, u: 'জার', label: '১ জার' },
+                      { qty: 1, u: 'পিস', label: '১ পিস' },
+                      { qty: 1, u: 'প্যাকেট', label: '১ প্যাকেট' },
+                    ].map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setBaseQuantity(preset.qty);
+                          setUnit(preset.u);
+                        }}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border transition cursor-pointer ${
+                          baseQuantity === preset.qty && unit === preset.u
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                            : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border-slate-200'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Live Dynamic Explanation Badge */}
+                  <div className="bg-emerald-50/90 border border-emerald-200 rounded-xl p-2.5 text-xs text-emerald-950 font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-base">💡</span>
+                      <span>
+                        {name ? name.trim() : (isBn ? 'পণ্যের' : 'Product')} {baseQuantity || 1} {unit} এর বিক্রয় মূল্য = {currency} {price || 0}
+                      </span>
+                    </div>
+                    {unit === 'গ্রাম' && Number(price) > 0 && Number(baseQuantity) > 0 && (
+                      <span className="bg-white px-2 py-0.5 rounded-md border border-emerald-200 text-emerald-800 font-mono text-[11px] self-start sm:self-auto">
+                        প্রতি গ্রাম {currency} {((Number(price) / Number(baseQuantity))).toFixed(2)} | প্রতি কেজি {currency} {(((Number(price) / Number(baseQuantity)) * 1000)).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Multiple Variants / Sizes (Optional) */}
+                <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[11px] text-emerald-900 font-bold">
+                      <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                        <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{isBn ? 'অন্যান্য ওজন / সাইজের আলাদা মূল্য (ঐচ্ছিক)' : 'Other Weights / Variants (Optional)'}</span>
+                      </h4>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
                         {isBn
-                          ? '💡 মধু, তেল বা চালের জন্য ভিন্ন ভিন্ন ওজনের বিক্রয় মূল্য লিখুন:'
-                          : '💡 Set specific selling prices for each weight or pack size:'}
+                          ? 'যেমন: একই এলাচের ৫০ গ্রাম, ২৫০ গ্রাম, ৫০০ গ্রাম বা ১ কেজির আলাদা দাম যোগ করতে পারেন।'
+                          : 'Add different prices for other weights/pack sizes of this item.'}
                       </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => addVariantRow('', unit)}
+                      className="text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-xl flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{isBn ? '+ ভ্যারিয়েন্ট যোগ করুন' : '+ Add Variant'}</span>
+                    </button>
+                  </div>
 
-                    {/* Quick Preset Buttons */}
-                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                      <span className="text-[10px] font-bold text-slate-500 mr-1">
-                        {isBn ? 'দ্রুত যোগ করুন:' : 'Quick Add:'}
-                      </span>
-                      {[
-                        { label: '১ কেজি (1 kg)', unit: 'কেজি' },
-                        { label: '৫০০ গ্রাম (500 gm)', unit: 'গ্রাম' },
-                        { label: '২৫০ গ্রাম (250 gm)', unit: 'গ্রাম' },
-                        { label: '১০০ গ্রাম (100 gm)', unit: 'গ্রাম' },
-                        { label: '১ জার (1 Jar)', unit: 'জার' },
-                        { label: '১ লিটার (1 Ltr)', unit: 'লিটার' },
-                        { label: '৫০০ মিলি (500 ml)', unit: 'বোতল' },
-                        { label: '১ প্যাকেট', unit: 'প্যাকেট' },
-                      ].map((preset, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => addVariantRow(preset.label, preset.unit)}
-                          className="text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/90 px-2 py-0.5 rounded-md transition shadow-2xs cursor-pointer"
-                        >
-                          + {preset.label}
-                        </button>
-                      ))}
-                    </div>
+                  {/* Quick Preset Buttons for Variants */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span className="text-[10px] font-bold text-slate-400 mr-1">
+                      {isBn ? 'দ্রুত ভ্যারিয়েন্ট যোগ:' : 'Quick Add Variant:'}
+                    </span>
+                    {[
+                      { label: '৫০ গ্রাম', unit: 'গ্রাম' },
+                      { label: '১০০ গ্রাম', unit: 'গ্রাম' },
+                      { label: '২৫০ গ্রাম', unit: 'গ্রাম' },
+                      { label: '৫০০ গ্রাম', unit: 'গ্রাম' },
+                      { label: '১ কেজি', unit: 'কেজি' },
+                      { label: '১ জার', unit: 'জার' },
+                      { label: '১ লিটার', unit: 'লিটার' },
+                      { label: '৫০০ মিলি', unit: 'বোতল' },
+                    ].map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => addVariantRow(preset.label, preset.unit)}
+                        className="text-[10px] font-bold bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 border border-slate-200 hover:border-emerald-200 px-2 py-0.5 rounded-md transition cursor-pointer"
+                      >
+                        + {preset.label}
+                      </button>
+                    ))}
+                  </div>
 
-                    {/* Variant Table Headers */}
-                    <div className="space-y-2 pt-1">
+                  {/* Variant Rows Table */}
+                  {variants.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
                       <div className="grid grid-cols-12 gap-2 text-[10px] font-extrabold text-slate-500 uppercase px-1">
                         <span className="col-span-5">{isBn ? 'ওজন / সাইজের নাম' : 'Weight / Size'}</span>
                         <span className="col-span-4">{isBn ? 'বিক্রয় মূল্য (৳)' : 'Price (৳)'}</span>
@@ -502,7 +557,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                             <input
                               type="text"
                               required
-                              placeholder="যেমন: ৫০০ গ্রাম"
+                              placeholder="যেমন: ২৫০ গ্রাম"
                               value={v.name}
                               onChange={(e) => updateVariantRow(v.id, 'name', e.target.value)}
                               className="w-full text-xs font-bold px-2.5 py-1.5 border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
@@ -533,8 +588,8 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                               onChange={(e) => updateVariantRow(v.id, 'unit', e.target.value)}
                               className="w-full text-xs font-medium px-1.5 py-1.5 border border-slate-200 rounded-lg outline-none bg-white"
                             >
-                              <option value="কেজি">কেজি</option>
                               <option value="গ্রাম">গ্রাম</option>
+                              <option value="কেজি">কেজি</option>
                               <option value="লিটার">লিটার</option>
                               <option value="জার">জার</option>
                               <option value="বোতল">বোতল</option>
@@ -557,18 +612,9 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                           </div>
                         </div>
                       ))}
-
-                      <button
-                        type="button"
-                        onClick={() => addVariantRow('', unit)}
-                        className="w-full py-2 border border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-100/50 text-emerald-800 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>{isBn ? '+ আরও একটি ওজন ও বিক্রয় মূল্য যোগ করুন' : '+ Add Another Weight & Price'}</span>
-                      </button>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

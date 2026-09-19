@@ -10,7 +10,8 @@ export interface Product {
   name: string;
   code?: string;
   price: number;
-  unit: string; // e.g. 'পিস' (pc), 'কেজি' (kg), 'লিটার' (ltr), 'জার' (Jar), 'প্যাকেট' (pkt)
+  baseQuantity?: number; // e.g. 100 for 100 gm, 50 for 50 gm, 1 for 1 kg
+  unit: string; // e.g. 'পিস' (pc), 'কেজি' (kg), 'গ্রাম' (gm), 'লিটার' (ltr), 'জার' (Jar), 'প্যাকেট' (pkt)
   category?: string;
   stock?: number;
   variants?: ProductVariant[];
