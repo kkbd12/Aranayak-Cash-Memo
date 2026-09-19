@@ -34,6 +34,7 @@ interface SalesDatabaseProps {
   onExportBackup?: () => void;
   onRestoreBackup?: (file: File) => Promise<boolean>;
   onClearAllMemos?: () => void;
+  onRepairDuplicateMemos?: () => void;
 }
 
 export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
@@ -49,10 +50,24 @@ export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
   onExportBackup,
   onRestoreBackup,
   onClearAllMemos,
+  onRepairDuplicateMemos,
 }) => {
   const isBn = lang === 'bn';
   const currency = shopSettings.currencySymbol || '৳';
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const duplicateMemoCount = React.useMemo(() => {
+    const seen = new Set<string>();
+    let dupes = 0;
+    for (const m of memos) {
+      const clean = (m.memoNo || '').trim().toUpperCase();
+      if (clean) {
+        if (seen.has(clean)) dupes++;
+        else seen.add(clean);
+      }
+    }
+    return dupes;
+  }, [memos]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Partial' | 'Due'>('All');
@@ -189,6 +204,37 @@ export const SalesDatabase: React.FC<SalesDatabaseProps> = ({
         <div className="bg-emerald-500 text-white font-bold p-3.5 rounded-2xl flex items-center justify-between text-xs shadow-md">
           <span>{restoreMessage}</span>
           <button onClick={() => setRestoreMessage(null)} className="text-white hover:text-slate-200">✕</button>
+        </div>
+      )}
+
+      {/* Duplicate Memo Numbers Detected Alert & 1-Click Fix */}
+      {duplicateMemoCount > 0 && onRepairDuplicateMemos && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 bg-amber-100 text-amber-700 rounded-xl shrink-0">
+              <AlertCircle className="w-5 h-5" />
+            </span>
+            <div>
+              <p className="font-bold text-amber-900 text-sm">
+                {isBn
+                  ? `সতর্কতা: মেমো লিস্টে ${duplicateMemoCount} টি ডুপ্লিকেট নম্বর পাওয়া গেছে!`
+                  : `Notice: Found ${duplicateMemoCount} duplicate memo numbers!`}
+              </p>
+              <p className="text-amber-700 text-xs mt-0.5">
+                {isBn
+                  ? 'সব মেমোকে তারিখ অনুযায়ী আলাদা আলাদা ইউনিক নম্বর দিতে নিচের বাটনে ক্লিক করুন।'
+                  : 'Click to automatically reassign unique sequential memo numbers to all duplicates.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRepairDuplicateMemos}
+            className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition shrink-0 cursor-pointer shadow-xs"
+          >
+            <History className="w-4 h-4" />
+            <span>{isBn ? 'ডুপ্লিকেট মেমো নম্বর ঠিক করুন' : 'Auto-Fix Numbers'}</span>
+          </button>
         </div>
       )}
 

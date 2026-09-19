@@ -3,7 +3,12 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { initialShopSettings, initialProducts, initialMemos } from './src/data/initialData';
-import { CashMemo, Product, ShopSettings } from './src/types';
+import { CashMemo, Customer, Product, ShopSettings } from './src/types';
+import {
+  extractMemoNumber,
+  getNextAvailableMemoNumber,
+  repairDuplicateMemos,
+} from './src/utils/memoNumberGenerator';
 
 const app = express();
 const PORT = 3000;
@@ -18,12 +23,41 @@ interface LocalDB {
   settings: ShopSettings;
   products: Product[];
   memos: CashMemo[];
+  customers: Customer[];
+}
+
+// Helper to extract customers from initial memos
+function extractInitialCustomers(memos: CashMemo[]): Customer[] {
+  const map = new Map<string, Customer>();
+  memos.forEach((m, idx) => {
+    const name = (m.customerName || '').trim();
+    const phone = (m.customerPhone || '').trim();
+    if (name && name !== 'খুচরা ক্রেতা' && phone) {
+      if (!map.has(phone)) {
+        map.set(phone, {
+          id: `cust-${idx + 1}`,
+          name,
+          phone,
+          address: m.customerAddress || '',
+          totalMemos: 1,
+          totalSpent: m.totalAmount || 0,
+          createdAt: m.createdAt || new Date().toISOString(),
+        });
+      } else {
+        const c = map.get(phone)!;
+        c.totalMemos = (c.totalMemos || 0) + 1;
+        c.totalSpent = (c.totalSpent || 0) + (m.totalAmount || 0);
+      }
+    }
+  });
+  return Array.from(map.values());
 }
 
 let dbState: LocalDB = {
   settings: initialShopSettings,
   products: initialProducts,
   memos: initialMemos,
+  customers: extractInitialCustomers(initialMemos),
 };
 
 // Initialize JSON database
@@ -43,11 +77,33 @@ function initDB() {
         }
         return p;
       });
+      const loadedCustomers: Customer[] = (parsed.customers && parsed.customers.length > 0)
+        ? parsed.customers
+        : extractInitialCustomers(parsed.memos || initialMemos);
       dbState = {
         settings: parsed.settings || initialShopSettings,
         products: enrichedProducts,
         memos: parsed.memos || initialMemos,
+        customers: loadedCustomers,
       };
+
+      // Check and repair any duplicate memo numbers in loaded memos
+      const prefix = dbState.settings.invoicePrefix || 'MEMO-';
+      const repairResult = repairDuplicateMemos(dbState.memos, prefix);
+      if (repairResult.changed) {
+        console.log(`[DB] Auto-repaired ${repairResult.repairedCount} duplicate memo numbers.`);
+        dbState.memos = repairResult.memos;
+      }
+
+      // Ensure nextMemoNumber is strictly higher than any existing memo number
+      const nextAvailable = getNextAvailableMemoNumber(dbState.memos, dbState.settings);
+      if ((dbState.settings.nextMemoNumber || 0) < nextAvailable.nextNumber - 1) {
+        dbState.settings.nextMemoNumber = nextAvailable.nextNumber - 1;
+      }
+
+      if (repairResult.changed) {
+        saveDB();
+      }
     } else {
       saveDB();
     }
@@ -169,21 +225,67 @@ app.get('/api/memos', (req, res) => {
   res.json(result);
 });
 
+// Get next available auto memo number
+app.get('/api/memos/next-number', (_req, res) => {
+  const nextInfo = getNextAvailableMemoNumber(dbState.memos, dbState.settings);
+  res.json({
+    memoNo: nextInfo.memoNo,
+    nextNumber: nextInfo.nextNumber,
+    prefix: dbState.settings.invoicePrefix || 'MEMO-',
+  });
+});
+
+// Repair any existing duplicate memo numbers
+app.post('/api/memos/repair-numbers', (_req, res) => {
+  const prefix = dbState.settings.invoicePrefix || 'MEMO-';
+  const result = repairDuplicateMemos(dbState.memos, prefix);
+  if (result.changed) {
+    dbState.memos = result.memos;
+    const nextInfo = getNextAvailableMemoNumber(dbState.memos, dbState.settings);
+    dbState.settings.nextMemoNumber = Math.max(dbState.settings.nextMemoNumber || 1001, nextInfo.nextNumber - 1);
+    saveDB();
+  }
+  res.json({
+    success: true,
+    repairedCount: result.repairedCount,
+    memos: dbState.memos,
+    settings: dbState.settings,
+  });
+});
+
 app.post('/api/memos', (req, res) => {
   const memoData = req.body;
-  const memoNo = memoData.memoNo || `${dbState.settings.invoicePrefix}${dbState.settings.nextMemoNumber}`;
+  const rawMemoNo = (memoData.memoNo || '').trim();
+
+  // Check if requested memo number is already taken by an existing memo
+  const isDuplicate = rawMemoNo && dbState.memos.some(
+    (m) => m.memoNo && m.memoNo.trim().toUpperCase() === rawMemoNo.toUpperCase()
+  );
+
+  let finalMemoNo = rawMemoNo;
+  if (!rawMemoNo || isDuplicate) {
+    const nextInfo = getNextAvailableMemoNumber(dbState.memos, dbState.settings);
+    finalMemoNo = nextInfo.memoNo;
+  }
 
   const newMemo: CashMemo = {
     ...memoData,
-    id: `memo-${Date.now()}`,
-    memoNo,
-    createdAt: new Date().toISOString(),
+    id: memoData.id || `memo-${Date.now()}`,
+    memoNo: finalMemoNo,
+    createdAt: memoData.createdAt || new Date().toISOString(),
   };
 
   dbState.memos.unshift(newMemo);
 
-  // Increment memo number counter in settings
-  dbState.settings.nextMemoNumber = (dbState.settings.nextMemoNumber || 1000) + 1;
+  // Increment and ensure nextMemoNumber is strictly higher than any existing memo
+  const prefix = dbState.settings.invoicePrefix || 'MEMO-';
+  const extractedNum = extractMemoNumber(finalMemoNo, prefix);
+  const nextInfo = getNextAvailableMemoNumber(dbState.memos, dbState.settings);
+  dbState.settings.nextMemoNumber = Math.max(
+    dbState.settings.nextMemoNumber || 1001,
+    (extractedNum !== null ? extractedNum + 1 : 1001),
+    nextInfo.nextNumber - 1
+  );
 
   // Update stock for purchased products if matched
   if (Array.isArray(newMemo.items)) {
@@ -197,8 +299,86 @@ app.post('/api/memos', (req, res) => {
     });
   }
 
+  // Auto-record customer into customers list if valid name & phone
+  const custName = (newMemo.customerName || '').trim();
+  const custPhone = (newMemo.customerPhone || '').trim();
+  if (custName && custName !== 'খুচরা ক্রেতা' && custPhone) {
+    if (!dbState.customers) dbState.customers = [];
+    const existingIdx = dbState.customers.findIndex((c) => c.phone.trim() === custPhone);
+    if (existingIdx !== -1) {
+      dbState.customers[existingIdx] = {
+        ...dbState.customers[existingIdx],
+        name: custName,
+        address: newMemo.customerAddress || dbState.customers[existingIdx].address || '',
+        totalMemos: (dbState.customers[existingIdx].totalMemos || 0) + 1,
+        totalSpent: (dbState.customers[existingIdx].totalSpent || 0) + (newMemo.totalAmount || 0),
+      };
+    } else {
+      dbState.customers.unshift({
+        id: `cust-${Date.now()}`,
+        name: custName,
+        phone: custPhone,
+        address: newMemo.customerAddress || '',
+        totalMemos: 1,
+        totalSpent: newMemo.totalAmount || 0,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
   saveDB();
   res.status(201).json({ memo: newMemo, settings: dbState.settings });
+});
+
+// Customers API
+app.get('/api/customers', (_req, res) => {
+  res.json(dbState.customers || []);
+});
+
+app.post('/api/customers', (req, res) => {
+  const customerData = req.body;
+  if (!customerData.name || !customerData.phone) {
+    return res.status(400).json({ error: 'Name and phone are required' });
+  }
+
+  if (!dbState.customers) dbState.customers = [];
+  const existingIdx = dbState.customers.findIndex(
+    (c) => c.phone.trim() === customerData.phone.trim() || (customerData.id && c.id === customerData.id)
+  );
+
+  let savedCustomer: Customer;
+  if (existingIdx !== -1) {
+    dbState.customers[existingIdx] = {
+      ...dbState.customers[existingIdx],
+      ...customerData,
+      id: dbState.customers[existingIdx].id,
+    };
+    savedCustomer = dbState.customers[existingIdx];
+  } else {
+    savedCustomer = {
+      id: customerData.id || `cust-${Date.now()}`,
+      name: customerData.name.trim(),
+      phone: customerData.phone.trim(),
+      address: customerData.address?.trim() || '',
+      note: customerData.note?.trim() || '',
+      totalMemos: customerData.totalMemos || 0,
+      totalSpent: customerData.totalSpent || 0,
+      createdAt: customerData.createdAt || new Date().toISOString(),
+    };
+    dbState.customers.unshift(savedCustomer);
+  }
+
+  saveDB();
+  res.status(201).json(savedCustomer);
+});
+
+app.delete('/api/customers/:id', (req, res) => {
+  const { id } = req.params;
+  if (dbState.customers) {
+    dbState.customers = dbState.customers.filter((c) => c.id !== id);
+  }
+  saveDB();
+  res.json({ success: true, id });
 });
 
 app.put('/api/memos/:id', (req, res) => {
@@ -267,15 +447,17 @@ app.get('/api/backup', (_req, res) => {
     settings: dbState.settings,
     products: dbState.products,
     memos: dbState.memos,
+    customers: dbState.customers || [],
   });
 });
 
 app.post('/api/restore', (req, res) => {
   try {
-    const { settings, products, memos } = req.body;
+    const { settings, products, memos, customers } = req.body;
     if (settings) dbState.settings = settings;
     if (Array.isArray(products)) dbState.products = products;
     if (Array.isArray(memos)) dbState.memos = memos;
+    if (Array.isArray(customers)) dbState.customers = customers;
     saveDB();
     res.json({
       success: true,
@@ -283,6 +465,7 @@ app.post('/api/restore', (req, res) => {
       settings: dbState.settings,
       products: dbState.products,
       memos: dbState.memos,
+      customers: dbState.customers,
     });
   } catch (err) {
     res.status(400).json({ success: false, error: 'Invalid backup data' });

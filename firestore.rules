@@ -25,6 +25,11 @@ service cloud.firestore {
       match /memos/{memoId} {
         allow read, write: if isAuthenticated();
       }
+
+      // Customers subcollection
+      match /customers/{customerId} {
+        allow read, write: if isAuthenticated();
+      }
     }
 
     // Fallback root collections if created directly
@@ -36,6 +41,11 @@ service cloud.firestore {
     }
     match /settings/{settingId} {
       allow read, write: if isAuthenticated();
+    }
+
+    // Connection health check
+    match /test/{docId} {
+      allow read: if true;
     }
   }
 }

@@ -10,6 +10,11 @@ import { PaymentModal } from './components/PaymentModal';
 import { CashMemo, Product, ShopSettings, DailySalesSummary } from './types';
 import { initialShopSettings, initialProducts, initialMemos } from './data/initialData';
 import {
+  getNextAvailableMemoNumber,
+  repairDuplicateMemos,
+  isMemoNoDuplicate,
+} from './utils/memoNumberGenerator';
+import {
   auth,
   signInWithGoogle,
   logOut,
@@ -20,10 +25,12 @@ import {
   saveSettingsToCloud,
   saveProductToCloud,
   deleteProductFromCloud,
-  syncLocalDataToCloud,
+  syncLocalAndCloudData,
+  testFirestoreConnection,
 } from './lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { Cloud, CheckCircle, AlertTriangle } from 'lucide-react';
+import { CloudSyncModal } from './components/CloudSyncModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'builder' | 'database' | 'products' | 'settings'>('builder');
@@ -33,6 +40,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [syncStatusBanner, setSyncStatusBanner] = useState<string | null>(null);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Application Data States (lazy initialized from localStorage first)
   const [shopSettings, setShopSettings] = useState<ShopSettings>(() => {
@@ -128,7 +138,20 @@ export default function App() {
     try {
       const local = localStorage.getItem('pos_memos_backup');
       if (local !== null) {
-        // User already has a memo state in this browser, respect it
+        try {
+          const parsed = JSON.parse(local);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const prefix = shopSettings.invoicePrefix || 'MEMO-';
+            const repair = repairDuplicateMemos(parsed, prefix);
+            if (repair.changed) {
+              setMemos(repair.memos);
+              localStorage.setItem('pos_memos_backup', JSON.stringify(repair.memos));
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn('Local memos parse error:', e);
+        }
         return;
       }
       const res = await fetch('/api/memos');
@@ -155,61 +178,162 @@ export default function App() {
     localStorage.setItem('pos_settings_backup', JSON.stringify(shopSettings));
   }, [shopSettings]);
 
+  // Test Firestore connection on boot (Skill Section 1)
+  useEffect(() => {
+    testFirestoreConnection().catch((err) => {
+      console.warn('Firestore initial boot check:', err);
+    });
+  }, []);
+
+  // Helper for Bidirectional Local & Firestore Cloud Synchronization
+  const performBidirectionalSync = async (userToSync: User) => {
+    try {
+      setIsCloudSyncing(true);
+      setSyncError(null);
+
+      // Read most up-to-date localStorage state to prevent stale state issues
+      let localSettings = shopSettings;
+      let localProducts = products;
+      let localMemos = memos;
+
+      try {
+        const s = localStorage.getItem('pos_settings_backup');
+        if (s) localSettings = JSON.parse(s);
+        const p = localStorage.getItem('pos_products_backup');
+        if (p) localProducts = JSON.parse(p);
+        const m = localStorage.getItem('pos_memos_backup');
+        if (m) localMemos = JSON.parse(m);
+      } catch (e) {
+        console.warn('Error reading local cache before sync:', e);
+      }
+
+      const syncResult = await syncLocalAndCloudData(userToSync.uid, {
+        settings: localSettings,
+        products: localProducts,
+        memos: localMemos,
+      });
+
+      if (syncResult) {
+        setShopSettings(syncResult.settings);
+        setProducts(syncResult.products);
+        setMemos(syncResult.memos);
+
+        localStorage.setItem('pos_settings_backup', JSON.stringify(syncResult.settings));
+        localStorage.setItem('pos_products_backup', JSON.stringify(syncResult.products));
+        localStorage.setItem('pos_memos_backup', JSON.stringify(syncResult.memos));
+
+        const nowTime = new Date().toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        setLastSyncedAt(nowTime);
+
+        // Keep local Express backend in sync too
+        fetch('/api/restore', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            settings: syncResult.settings,
+            products: syncResult.products,
+            memos: syncResult.memos,
+          }),
+        }).catch((e) => console.warn('Express server sync update skipped:', e));
+      }
+    } catch (err: any) {
+      console.error('Bidirectional sync error:', err);
+      const errMsg =
+        err?.message || (lang === 'bn' ? 'ক্লাউড ডেটাবেসের সাথে সংযোগে সমস্যা হয়েছে।' : 'Failed to connect to Cloud Database.');
+      setSyncError(errMsg);
+      throw err;
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
+
   // Listen to Firebase Auth state
   useEffect(() => {
+    let unsubscribeShopData: (() => void) | null = null;
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
+      if (unsubscribeShopData) {
+        unsubscribeShopData();
+        unsubscribeShopData = null;
+      }
+
       if (user) {
-        setIsCloudSyncing(true);
-        // Upload initial local data to cloud if cloud doesn't have them
-        await syncLocalDataToCloud(user.uid, {
-          settings: shopSettings,
-          products,
-          memos,
-        });
+        try {
+          await performBidirectionalSync(user);
+          setSyncStatusBanner(
+            lang === 'bn'
+              ? 'গুগল ক্লাউড লাইভ সিঙ্ক সক্রিয় হয়েছে! আপনার মেমো ও পণ্য ক্লাউডে রিয়েল-টাইমে সংরক্ষিত।'
+              : 'Google Cloud Live Sync active! Your memos and products are synced in real time.'
+          );
+          setTimeout(() => setSyncStatusBanner(null), 5000);
+        } catch (e) {
+          console.warn('Initial sync warning on auth:', e);
+        }
 
         // Set up real-time listener for multi-device sync
-        const unsubscribeShopData = subscribeToShopData(user.uid, {
+        unsubscribeShopData = subscribeToShopData(user.uid, {
           onSettingsChange: (cloudSettings) => {
             if (cloudSettings && cloudSettings.shopName) {
-              setShopSettings(cloudSettings);
+              setShopSettings((prev) => ({
+                ...cloudSettings,
+                // Ensure nextMemoNumber never downgrades to a lower/stale number
+                nextMemoNumber: Math.max(prev.nextMemoNumber || 1001, cloudSettings.nextMemoNumber || 1001),
+              }));
+              localStorage.setItem('pos_settings_backup', JSON.stringify(cloudSettings));
             }
           },
           onProductsChange: (cloudProducts) => {
-            if (cloudProducts && cloudProducts.length > 0) {
+            if (cloudProducts && Array.isArray(cloudProducts) && cloudProducts.length > 0) {
               setProducts(cloudProducts);
+              localStorage.setItem('pos_products_backup', JSON.stringify(cloudProducts));
             }
           },
           onMemosChange: (cloudMemos) => {
-            if (cloudMemos) {
-              setMemos(cloudMemos);
+            if (cloudMemos && Array.isArray(cloudMemos)) {
+              const prefix = shopSettings.invoicePrefix || 'MEMO-';
+              const repair = repairDuplicateMemos(cloudMemos, prefix);
+              const finalMemos = repair.changed ? repair.memos : cloudMemos;
+              setMemos(finalMemos);
+              localStorage.setItem('pos_memos_backup', JSON.stringify(finalMemos));
             }
           },
+          onError: (err) => {
+            console.warn('Real-time sync listener notice:', err);
+          },
         });
-
-        setIsCloudSyncing(false);
-        setSyncStatusBanner(
-          lang === 'bn'
-            ? 'গুগল ক্লাউড সিঙ্ক চালু হয়েছে! এখন যেকোনো মোবাইল বা কম্পিউটার থেকে ডাটা সুরক্ষিত থাকবে।'
-            : 'Cloud sync active! Your data is accessible from any mobile or desktop.'
-        );
-        setTimeout(() => setSyncStatusBanner(null), 6000);
-
-        return () => unsubscribeShopData();
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeShopData) {
+        unsubscribeShopData();
+      }
+    };
   }, []);
 
   const handleLoginWithGoogle = async () => {
     try {
       setIsCloudSyncing(true);
-      await signInWithGoogle();
+      setSyncError(null);
+      const user = await signInWithGoogle();
+      if (user) {
+        setSyncStatusBanner(
+          lang === 'bn'
+            ? 'গুগল লগইন সম্পন্ন! ক্লাউডে লাইভ সিঙ্ক শুরু হয়েছে।'
+            : 'Google Sign-in successful! Live sync initiated.'
+        );
+        setTimeout(() => setSyncStatusBanner(null), 5000);
+      }
     } catch (err: any) {
       console.error('Login error:', err);
       const msg = err?.message || (lang === 'bn' ? 'গুগল লগইনে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।' : 'Google Sign-In failed. Please retry.');
-      alert(msg);
+      setSyncError(msg);
+      setIsSyncModalOpen(true);
     } finally {
       setIsCloudSyncing(false);
     }
@@ -221,8 +345,8 @@ export default function App() {
       setCurrentUser(null);
       setSyncStatusBanner(
         lang === 'bn'
-          ? 'লগআউট সম্পন্ন। ডাটা আপনার ব্রাউজারের লোকাল মেমরিতে সুরক্ষিত আছে।'
-          : 'Signed out. Local cache is active.'
+          ? 'লগআউট সম্পন্ন। ডাটা আপনার ডিভাইসের লোকাল মেমরিতে সুরক্ষিত আছে।'
+          : 'Signed out. Data remains cached locally.'
       );
       setTimeout(() => setSyncStatusBanner(null), 4000);
     } catch (err) {
@@ -343,6 +467,8 @@ export default function App() {
   // Handlers
   const handleSaveMemo = async (memoData: Omit<CashMemo, 'id' | 'createdAt'>): Promise<CashMemo | null> => {
     let savedMemo: CashMemo | null = null;
+    let activeSettings: ShopSettings = shopSettings;
+
     try {
       const res = await fetch('/api/memos', {
         method: 'POST',
@@ -355,38 +481,105 @@ export default function App() {
         savedMemo = memo;
         setMemos((prev) => [memo, ...prev]);
         if (updatedSettings) {
-          setShopSettings(updatedSettings);
+          activeSettings = updatedSettings;
         }
       } else {
         // Fallback local creation if server unavailable
+        const autoNext = getNextAvailableMemoNumber(memos, shopSettings);
+        const finalNo = memoData.memoNo && !isMemoNoDuplicate(memoData.memoNo, memos)
+          ? memoData.memoNo
+          : autoNext.memoNo;
+
         const newMemo: CashMemo = {
           ...memoData,
           id: `memo-${Date.now()}`,
+          memoNo: finalNo,
           createdAt: new Date().toISOString(),
         };
         savedMemo = newMemo;
         setMemos((prev) => [newMemo, ...prev]);
-        setShopSettings((prev) => ({ ...prev, nextMemoNumber: prev.nextMemoNumber + 1 }));
       }
     } catch (err) {
       console.error('Error saving memo:', err);
+      const autoNext = getNextAvailableMemoNumber(memos, shopSettings);
+      const finalNo = memoData.memoNo && !isMemoNoDuplicate(memoData.memoNo, memos)
+        ? memoData.memoNo
+        : autoNext.memoNo;
+
       const newMemo: CashMemo = {
         ...memoData,
         id: `memo-${Date.now()}`,
+        memoNo: finalNo,
         createdAt: new Date().toISOString(),
       };
       savedMemo = newMemo;
       setMemos((prev) => [newMemo, ...prev]);
     }
 
-    // Save to Firestore Cloud if user is signed in
-    if (savedMemo && currentUser) {
-      saveMemoToCloud(currentUser.uid, savedMemo).catch((e) =>
-        console.warn('Cloud save memo error:', e)
-      );
+    // Advance shopSettings.nextMemoNumber strictly higher than all memos
+    if (savedMemo) {
+      const allMemos = [savedMemo, ...memos];
+      const nextInfo = getNextAvailableMemoNumber(allMemos, activeSettings);
+      const safeSettings: ShopSettings = {
+        ...activeSettings,
+        nextMemoNumber: Math.max(activeSettings.nextMemoNumber || 1001, nextInfo.nextNumber - 1),
+      };
+
+      setShopSettings(safeSettings);
+      localStorage.setItem('pos_settings_backup', JSON.stringify(safeSettings));
+
+      // Save to Firestore Cloud if user is signed in
+      if (currentUser) {
+        saveMemoToCloud(currentUser.uid, savedMemo).catch((e) =>
+          console.warn('Cloud save memo error:', e)
+        );
+        saveSettingsToCloud(currentUser.uid, safeSettings).catch((e) =>
+          console.warn('Cloud save settings error:', e)
+        );
+      }
     }
 
     return savedMemo;
+  };
+
+  // Repair duplicate memo numbers across the entire dataset
+  const handleRepairDuplicateMemos = async () => {
+    const prefix = shopSettings.invoicePrefix || 'MEMO-';
+    const repair = repairDuplicateMemos(memos, prefix);
+    if (repair.changed) {
+      setMemos(repair.memos);
+      localStorage.setItem('pos_memos_backup', JSON.stringify(repair.memos));
+
+      const nextInfo = getNextAvailableMemoNumber(repair.memos, shopSettings);
+      const safeSettings: ShopSettings = {
+        ...shopSettings,
+        nextMemoNumber: Math.max(shopSettings.nextMemoNumber || 1001, nextInfo.nextNumber - 1),
+      };
+      setShopSettings(safeSettings);
+      localStorage.setItem('pos_settings_backup', JSON.stringify(safeSettings));
+
+      // Attempt server update
+      try {
+        await fetch('/api/memos/repair-numbers', { method: 'POST' });
+      } catch (e) {
+        console.warn('Server repair error:', e);
+      }
+
+      // Sync to cloud if user logged in
+      if (currentUser) {
+        for (const m of repair.memos) {
+          saveMemoToCloud(currentUser.uid, m).catch((e) => console.warn('Cloud memo repair sync:', e));
+        }
+        saveSettingsToCloud(currentUser.uid, safeSettings).catch((e) => console.warn('Cloud settings repair sync:', e));
+      }
+
+      setSyncStatusBanner(
+        lang === 'bn'
+          ? `সফলভাবে ${repair.repairedCount} টি ডুপ্লিকেট মেমো নম্বর ঠিক করা হয়েছে!`
+          : `Successfully repaired ${repair.repairedCount} duplicate memo numbers!`
+      );
+      setTimeout(() => setSyncStatusBanner(null), 5000);
+    }
   };
 
   const handleDeleteMemo = async (id: string) => {
@@ -584,6 +777,7 @@ export default function App() {
         isCloudSyncing={isCloudSyncing}
         onLoginWithGoogle={handleLoginWithGoogle}
         onLogout={handleLogout}
+        onOpenSyncModal={() => setIsSyncModalOpen(true)}
       />
 
       {/* Cloud Sync Announcement Banner */}
@@ -646,6 +840,7 @@ export default function App() {
             onExportBackup={handleExportFullBackup}
             onRestoreBackup={handleRestoreFullBackup}
             onClearAllMemos={handleClearAllMemos}
+            onRepairDuplicateMemos={handleRepairDuplicateMemos}
           />
         )}
 
@@ -668,6 +863,7 @@ export default function App() {
             onExportBackup={handleExportFullBackup}
             onRestoreBackup={handleRestoreFullBackup}
             onClearAllMemos={handleClearAllMemos}
+            onOpenSyncModal={() => setIsSyncModalOpen(true)}
           />
         )}
       </main>
@@ -679,6 +875,29 @@ export default function App() {
           {lang === 'bn' ? 'সকল অধিকার সংরক্ষিত।' : 'All Rights Reserved.'}
         </p>
       </footer>
+
+      {/* Cloud Sync Modal */}
+      <CloudSyncModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        currentUser={currentUser}
+        isCloudSyncing={isCloudSyncing}
+        lastSyncedAt={lastSyncedAt}
+        memosCount={memos.length}
+        productsCount={products.length}
+        shopSettings={shopSettings}
+        lang={lang}
+        onLoginWithGoogle={handleLoginWithGoogle}
+        onLogout={handleLogout}
+        onForceSync={async () => {
+          if (currentUser) {
+            await performBidirectionalSync(currentUser);
+          } else {
+            await handleLoginWithGoogle();
+          }
+        }}
+        syncError={syncError}
+      />
 
       {/* Print Preview Modal */}
       {previewMemo && (

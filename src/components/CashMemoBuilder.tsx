@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Plus,
   Trash2,
@@ -17,8 +17,12 @@ import {
   Users,
   Gift,
   Layers,
+  RefreshCw,
+  AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 import { CashMemo, MemoItem, Product, ShopSettings, PaymentMethod } from '../types';
+import { getNextAvailableMemoNumber, isMemoNoDuplicate } from '../utils/memoNumberGenerator';
 
 interface CashMemoBuilderProps {
   shopSettings: ShopSettings;
@@ -94,11 +98,29 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
     setShowPhoneSuggestions(false);
   };
 
+  // Auto-calculated unique memo number
+  const autoMemoInfo = useMemo(() => {
+    return getNextAvailableMemoNumber(memos, shopSettings);
+  }, [memos, shopSettings]);
+
+  const [isManualMemoNo, setIsManualMemoNo] = useState(false);
   const [memoNo, setMemoNo] = useState('');
   const [memoDate, setMemoDate] = useState(new Date().toISOString().split('T')[0]);
   const [memoTime, setMemoTime] = useState(
     new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   );
+
+  // Keep memoNo synchronized with auto-generated unique number unless user manually edited it
+  useEffect(() => {
+    if (!isManualMemoNo && autoMemoInfo.memoNo) {
+      setMemoNo(autoMemoInfo.memoNo);
+    }
+  }, [autoMemoInfo.memoNo, isManualMemoNo]);
+
+  // Check if the current memo number is already used in saved memos
+  const isDuplicateMemo = useMemo(() => {
+    return isMemoNoDuplicate(memoNo, memos);
+  }, [memoNo, memos]);
 
   // Items State
   const [items, setItems] = useState<MemoItem[]>([
@@ -125,12 +147,6 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [searchProductQuery, setSearchProductQuery] = useState('');
 
-  // Auto-fill next memo number when shopSettings change
-  useEffect(() => {
-    if (shopSettings.invoicePrefix && shopSettings.nextMemoNumber) {
-      setMemoNo(`${shopSettings.invoicePrefix}${shopSettings.nextMemoNumber}`);
-    }
-  }, [shopSettings]);
 
   // Handle Item Row Changes
   const updateItem = (id: string, field: keyof MemoItem, value: any) => {
@@ -295,7 +311,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
     setPaidAmount(totalAmount);
   };
 
-  const resetForm = () => {
+  const resetForm = (newlySavedMemo?: CashMemo) => {
     setCustomerName('');
     setCustomerPhone('');
     setCustomerAddress('');
@@ -314,9 +330,12 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
     setPaidAmount(0);
     setNotes('');
     setErrorMessage('');
-    if (shopSettings.invoicePrefix && shopSettings.nextMemoNumber) {
-      setMemoNo(`${shopSettings.invoicePrefix}${shopSettings.nextMemoNumber}`);
-    }
+    setIsManualMemoNo(false);
+    
+    // Calculate the next auto memo number immediately with any newly saved memo included
+    const updatedMemos = newlySavedMemo ? [newlySavedMemo, ...memos] : memos;
+    const nextAuto = getNextAvailableMemoNumber(updatedMemos, shopSettings);
+    setMemoNo(nextAuto.memoNo);
   };
 
   const handleSaveAndAction = async (andPrint: boolean) => {
@@ -333,8 +352,14 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
       const status: 'Paid' | 'Partial' | 'Due' =
         paidAmount >= totalAmount ? 'Paid' : paidAmount > 0 ? 'Partial' : 'Due';
 
+      // Ensure unique auto memo number (never save a duplicate)
+      let finalMemoNo = memoNo.trim();
+      if (!finalMemoNo || isDuplicateMemo) {
+        finalMemoNo = autoMemoInfo.memoNo;
+      }
+
       const memoPayload = {
-        memoNo: memoNo || `MEMO-${Date.now()}`,
+        memoNo: finalMemoNo,
         date: memoDate,
         time: memoTime,
         customerName: customerName.trim() || (isBn ? 'খুচরা ক্রেতা' : 'Retail Customer'),
@@ -359,7 +384,7 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
         if (andPrint) {
           onPrintMemo(savedMemo);
         }
-        resetForm();
+        resetForm(savedMemo);
       }
     } catch (err) {
       console.error('Error saving memo:', err);
@@ -564,15 +589,70 @@ export const CashMemoBuilder: React.FC<CashMemoBuilderProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  {isBn ? 'মেমো নম্বর (Memo No)' : 'Memo Number'}
-                </label>
-                <input
-                  type="text"
-                  value={memoNo}
-                  onChange={(e) => setMemoNo(e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-mono font-bold border border-emerald-200 rounded-xl bg-emerald-50/40 text-emerald-800 focus:ring-2 focus:ring-emerald-500 outline-none"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700">
+                    {isBn ? 'মেমো নম্বর (Memo No)' : 'Memo Number'}
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {isDuplicateMemo ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full bg-rose-100 text-rose-700">
+                        <AlertCircle className="w-3 h-3" />
+                        {isBn ? 'ডুপ্লিকেট' : 'Duplicate'}
+                      </span>
+                    ) : isManualMemoNo ? (
+                      <span className="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-amber-100 text-amber-700">
+                        {isBn ? 'কাস্টম' : 'Custom'}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-bold rounded-full bg-emerald-100 text-emerald-700">
+                        <Sparkles className="w-3 h-3" />
+                        {isBn ? 'অটো' : 'Auto'}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsManualMemoNo(false);
+                        setMemoNo(autoMemoInfo.memoNo);
+                      }}
+                      title={isBn ? 'স্বয়ংক্রিয় পরবর্তী ইউনিক নম্বর সেট করুন' : 'Reset to next auto number'}
+                      className="text-xs text-emerald-700 hover:text-emerald-800 p-1 hover:bg-emerald-50 rounded-lg transition"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={memoNo}
+                    onChange={(e) => {
+                      setIsManualMemoNo(true);
+                      setMemoNo(e.target.value);
+                    }}
+                    placeholder={autoMemoInfo.memoNo}
+                    className={`w-full px-3 py-2 text-sm font-mono font-bold rounded-xl outline-none transition ${
+                      isDuplicateMemo
+                        ? 'border-2 border-rose-300 bg-rose-50/50 text-rose-800 focus:ring-2 focus:ring-rose-500'
+                        : 'border border-emerald-200 bg-emerald-50/40 text-emerald-800 focus:ring-2 focus:ring-emerald-500'
+                    }`}
+                  />
+                </div>
+                {isDuplicateMemo && (
+                  <div className="mt-1 flex items-center justify-between text-xs text-rose-600 font-medium">
+                    <span>{isBn ? 'এই নম্বরটি আগে ব্যবহৃত হয়েছে!' : 'Already exists!'}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsManualMemoNo(false);
+                        setMemoNo(autoMemoInfo.memoNo);
+                      }}
+                      className="font-bold underline text-emerald-700 hover:text-emerald-800 ml-1"
+                    >
+                      {isBn ? `অটো ${autoMemoInfo.memoNo} বসান` : `Use ${autoMemoInfo.memoNo}`}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>

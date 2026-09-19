@@ -81,6 +81,20 @@
         "createdAt": { "type": "string" }
       },
       "required": ["memoNo", "date", "customerName", "totalAmount"]
+    },
+    "Customer": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "note": { "type": "string" },
+        "totalMemos": { "type": "number" },
+        "totalSpent": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "phone"]
     }
   },
   "firestore": {
@@ -99,6 +113,10 @@
     "/shops/{shopId}/memos/{memoId}": {
       "schema": "CashMemo",
       "description": "Sales cash memos"
+    },
+    "/shops/{shopId}/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customer contacts and address directory"
     }
   }
 }

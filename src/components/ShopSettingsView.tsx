@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Settings, Store, Phone, MapPin, FileText, Check, Save, HardDriveDownload, Upload, ShieldCheck, Database, Trash2 } from 'lucide-react';
+import { Settings, Store, Phone, MapPin, FileText, Check, Save, HardDriveDownload, Upload, ShieldCheck, Database, Trash2, Cloud } from 'lucide-react';
 import { ShopSettings } from '../types';
 
 interface ShopSettingsViewProps {
@@ -9,6 +9,7 @@ interface ShopSettingsViewProps {
   onExportBackup?: () => void;
   onRestoreBackup?: (file: File) => Promise<boolean>;
   onClearAllMemos?: () => void;
+  onOpenSyncModal?: () => void;
 }
 
 export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
@@ -18,6 +19,7 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
   onExportBackup,
   onRestoreBackup,
   onClearAllMemos,
+  onOpenSyncModal,
 }) => {
   const isBn = lang === 'bn';
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -326,6 +328,17 @@ export const ShopSettingsView: React.FC<ShopSettingsViewProps> = ({
         )}
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
+          {onOpenSyncModal && (
+            <button
+              type="button"
+              onClick={onOpenSyncModal}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-2 transition shadow-xs cursor-pointer"
+            >
+              <Cloud className="w-4 h-4" />
+              <span>{isBn ? 'ক্লাউড লাইভ সিঙ্ক সেন্টার' : 'Cloud Live Sync Center'}</span>
+            </button>
+          )}
+
           {onExportBackup && (
             <button
               type="button"

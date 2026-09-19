@@ -426,7 +426,15 @@ export const PrintableMemo: React.FC<PrintableMemoProps> = ({
               <div className="flex justify-between px-3.5 py-2 border-b border-slate-200 text-rose-600">
                 <span>
                   {isBn ? 'ছাড় (Discount):' : 'Discount:'}{' '}
-                  {memo.discountType === 'percent' && `(${memo.discount}%)`}
+                  <span className="font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded text-xs ml-1">
+                    {memo.discountPercent !== undefined && memo.discountPercent > 0
+                      ? `${memo.discountPercent}%`
+                      : memo.discountType === 'percent'
+                      ? `${memo.discount}%`
+                      : memo.subtotal > 0
+                      ? `${Math.round(((memo.discount || 0) / memo.subtotal) * 100)}%`
+                      : ''}
+                  </span>
                 </span>
                 <span className="font-mono font-semibold">
                   - {currency} {memo.discount.toLocaleString()}

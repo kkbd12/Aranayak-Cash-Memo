@@ -31,6 +31,17 @@ export interface MemoItem {
 
 export type PaymentMethod = 'Cash' | 'Bangla QR';
 
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  address?: string;
+  note?: string;
+  totalMemos?: number;
+  totalSpent?: number;
+  createdAt: string;
+}
+
 export interface CashMemo {
   id: string;
   memoNo: string;
@@ -43,6 +54,7 @@ export interface CashMemo {
   subtotal: number;
   discount: number;
   discountType: 'flat' | 'percent';
+  discountPercent?: number;
   tax: number; // percentage or amount
   shipping: number;
   totalAmount: number;
